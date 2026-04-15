@@ -1,0 +1,42 @@
+from pydantic import BaseModel
+
+
+class FileInfo(BaseModel):
+    name: str
+    sheet_name: str
+    rows: int
+    columns: list[str]
+
+
+class ColumnProfileResponse(BaseModel):
+    name: str
+    dtype: str
+    null_count: int
+    null_pct: float
+    unique_count: int
+    sample_values: list
+    stats: dict | None
+
+
+class SheetProfileResponse(BaseModel):
+    file_name: str
+    sheet_name: str
+    row_count: int
+    column_count: int
+    columns: list[ColumnProfileResponse]
+
+
+class UploadResponse(BaseModel):
+    session_id: str
+    files: list[FileInfo]
+    profiles: list[SheetProfileResponse]
+    warnings: list[str]
+
+
+class ErrorDetail(BaseModel):
+    code: str
+    message: str
+
+
+class ErrorResponse(BaseModel):
+    error: ErrorDetail
