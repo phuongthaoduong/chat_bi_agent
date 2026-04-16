@@ -67,3 +67,92 @@ RULES:
 - Keep insights concise (1 sentence each), grounded in the stats provided
 - Suggest charts that highlight different aspects of the data
 - For trend analysis, use datetime or ordered categorical columns for group_by"""
+
+
+CHAT_CLASSIFY_PROMPT = """You are a data analyst. Given the dataset schemas and the user's question, first classify the question, then produce an analysis plan if needed.
+
+AVAILABLE DATASETS:
+{dataset_inventory}
+
+DETAILED SCHEMA:
+{profile_detail}
+
+CHAT HISTORY:
+{chat_history}
+
+USER QUESTION:
+{question}
+
+Respond with EXACTLY this JSON structure (no markdown, no code fences):
+{{
+  "question_type": "computational" or "conversational",
+  "plan": {{
+    "source": {{ "file_name": "...", "sheet_name": "..." }},
+    "intent": "aggregate|distribution|trend|comparison|top_n|correlation",
+    "target_fields": ["column_name"],
+    "group_by": ["column_name"] or null,
+    "filters": [{{"field": "...", "operator": "eq|ne|gt|lt|gte|lte|in|contains", "value": "..."}}] or null,
+    "sort": {{"field": "...", "direction": "asc|desc"}} or null,
+    "limit": number or null,
+    "chart": {{
+      "chart_type": "bar|line|pie|scatter",
+      "title": "string",
+      "x_axis": "column_name" or null,
+      "y_axis": "column_name" or null
+    }} or null
+  }} or null
+}}
+
+RULES:
+- Classify as "computational" if the question requires querying data (aggregations, filtering, ranking, comparisons, trends)
+- Classify as "conversational" if the question is interpretive (explaining charts, summarizing patterns, asking "why", general advice)
+- If "computational", plan MUST include a valid "source" and column references from the schema
+- If "conversational", set plan to null
+- Do NOT include any answer text"""
+
+
+CHAT_FORMAT_COMPUTATIONAL_PROMPT = """You are a data analyst assistant. The user asked a question and the system has computed the result. Write a clear, concise answer based on the actual data provided.
+
+USER QUESTION:
+{question}
+
+COMPUTED RESULT:
+{result_json}
+
+RULES:
+- Only state facts that appear in the computed result
+- Do not invent or estimate numbers
+- Keep the answer to 1-3 sentences
+- Use natural language appropriate for a non-technical business user"""
+
+
+CHAT_FORMAT_CONVERSATIONAL_PROMPT = """You are a data analyst assistant. The user asked an interpretive question. Answer based on the dataset context and conversation history provided.
+
+AVAILABLE DATASETS:
+{dataset_inventory}
+
+DETAILED SCHEMA:
+{profile_detail}
+
+RECENT CHAT HISTORY (including prior computed results):
+{chat_history}
+
+USER QUESTION:
+{question}
+
+RULES:
+- Base your answer on the dataset profile and prior computed results in chat history
+- Do not invent specific numbers unless they appear in the provided context
+- Clearly distinguish interpretation from established fact
+- Keep the answer to 2-4 sentences
+- Use natural language appropriate for a non-technical business user"""
+
+
+def format_chat_history(messages: list) -> str:
+    if not messages:
+        return "(no prior messages)"
+    lines = []
+    for msg in messages[-10:]:  # last 10 messages for context window
+        role = "User" if msg.role == "user" else "Assistant"
+        lines.append(f"{role}: {msg.content}")
+    return "\n".join(lines)

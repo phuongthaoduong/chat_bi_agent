@@ -140,6 +140,17 @@ class DashboardSuggestion:
     plans: list[AnalysisPlan]
 
 
+class QuestionType(Enum):
+    COMPUTATIONAL = "computational"
+    CONVERSATIONAL = "conversational"
+
+
+@dataclass
+class QuestionInterpretation:
+    question_type: QuestionType
+    plan: AnalysisPlan | None  # null for conversational
+
+
 @dataclass
 class SessionData:
     files: list[ParsedFile]
