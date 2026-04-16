@@ -1,3 +1,4 @@
+import logging
 import uuid
 from io import BytesIO
 
@@ -5,8 +6,10 @@ from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from analysis.engine import AnalysisEngine
 from config import MAX_FILE_SIZE_BYTES, MAX_SESSIONS, SESSION_TTL_MINUTES
 from models.api import (
+    ChartDataResponse,
     ColumnProfileResponse,
     ErrorDetail,
     ErrorResponse,
@@ -18,6 +21,8 @@ from models.domain import DataSource, ParsedFile, SessionData
 from parsers.registry import get_parser
 from profiler.profiler import DataProfiler
 from session.memory_store import MemorySessionStore
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="ChatBI")
 
@@ -31,6 +36,19 @@ app.add_middleware(
 
 session_store = MemorySessionStore(max_sessions=MAX_SESSIONS, ttl_minutes=SESSION_TTL_MINUTES)
 profiler = DataProfiler()
+analysis_engine = AnalysisEngine()
+
+_llm_client = None
+
+
+def get_llm_client():
+    global _llm_client
+    if _llm_client is None:
+        from config import DEEPSEEK_API_KEY
+        if DEEPSEEK_API_KEY:
+            from llm.client import LLMClient
+            _llm_client = LLMClient()
+    return _llm_client
 
 
 @app.get("/api/health")
@@ -132,6 +150,44 @@ async def upload_files(files: list[UploadFile] = File(...)):
             ).model_dump(),
         )
 
+    # Generate dashboard via LLM (graceful degradation if unavailable)
+    insights: list[str] = []
+    chart_responses: list[ChartDataResponse] = []
+
+    client = get_llm_client()
+    if client:
+        try:
+            suggestion = client.suggest_dashboard(all_profiles)
+            insights = suggestion.insights
+
+            for plan in suggestion.plans:
+                try:
+                    target_sheets = []
+                    for pf in parsed_files:
+                        if pf.name == plan.source.file_name:
+                            target_sheets = pf.sheets
+                            break
+                    if not target_sheets:
+                        continue
+
+                    result = analysis_engine.execute_plan(plan, target_sheets)
+                    if result.chart_data:
+                        chart_responses.append(
+                            ChartDataResponse(
+                                chart_type=result.chart_data.chart_type,
+                                title=result.chart_data.title,
+                                labels=result.chart_data.labels,
+                                datasets=result.chart_data.datasets,
+                                x_axis=result.chart_data.x_axis,
+                                y_axis=result.chart_data.y_axis,
+                            )
+                        )
+                except Exception as e:
+                    logger.warning("Failed to execute plan: %s", e)
+                    continue
+        except Exception as e:
+            logger.warning("LLM dashboard generation failed: %s", e)
+
     profile_responses = [
         SheetProfileResponse(
             file_name=p.source.file_name,
@@ -159,4 +215,6 @@ async def upload_files(files: list[UploadFile] = File(...)):
         files=file_infos,
         profiles=profile_responses,
         warnings=warnings,
+        insights=insights,
+        charts=chart_responses,
     )

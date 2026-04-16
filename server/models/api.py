@@ -26,11 +26,22 @@ class SheetProfileResponse(BaseModel):
     columns: list[ColumnProfileResponse]
 
 
+class ChartDataResponse(BaseModel):
+    chart_type: str
+    title: str
+    labels: list
+    datasets: list[dict]
+    x_axis: str | None = None
+    y_axis: str | None = None
+
+
 class UploadResponse(BaseModel):
     session_id: str
     files: list[FileInfo]
     profiles: list[SheetProfileResponse]
     warnings: list[str]
+    insights: list[str] = []
+    charts: list[ChartDataResponse] = []
 
 
 class ErrorDetail(BaseModel):
