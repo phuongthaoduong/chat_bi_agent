@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { UploadResponse } from "./types";
 import { UploadScreen } from "./components/upload/UploadScreen";
+import { SessionScreen } from "./components/session/SessionScreen";
 
 function App() {
   const [uploadData, setUploadData] = useState<UploadResponse | null>(null);
@@ -9,12 +10,7 @@ function App() {
     return <UploadScreen onUploadComplete={setUploadData} />;
   }
 
-  return (
-    <div style={{ padding: "24px" }}>
-      <h2>Session: {uploadData.session_id}</h2>
-      <pre>{JSON.stringify(uploadData, null, 2)}</pre>
-    </div>
-  );
+  return <SessionScreen data={uploadData} onReset={() => setUploadData(null)} />;
 }
 
 export default App;
