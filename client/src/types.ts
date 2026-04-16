@@ -1,0 +1,38 @@
+export interface FileInfo {
+  name: string;
+  sheet_name: string;
+  rows: number;
+  columns: string[];
+}
+
+export interface ColumnProfile {
+  name: string;
+  dtype: string;
+  null_count: number;
+  null_pct: number;
+  unique_count: number;
+  sample_values: unknown[];
+  stats: Record<string, unknown> | null;
+}
+
+export interface SheetProfile {
+  file_name: string;
+  sheet_name: string;
+  row_count: number;
+  column_count: number;
+  columns: ColumnProfile[];
+}
+
+export interface UploadResponse {
+  session_id: string;
+  files: FileInfo[];
+  profiles: SheetProfile[];
+  warnings: string[];
+}
+
+export interface ErrorResponse {
+  error: {
+    code: string;
+    message: string;
+  };
+}
