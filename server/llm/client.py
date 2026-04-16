@@ -3,7 +3,7 @@ import logging
 
 from openai import OpenAI
 
-from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
+from config import QWEN_API_KEY, QWEN_BASE_URL, QWEN_MODEL
 from llm.prompts import (
     DASHBOARD_SYSTEM_PROMPT,
     build_dataset_inventory,
@@ -86,8 +86,8 @@ def parse_dashboard_response(raw: str) -> DashboardSuggestion:
 class LLMClient:
     def __init__(self):
         self._client = OpenAI(
-            api_key=DEEPSEEK_API_KEY,
-            base_url=DEEPSEEK_BASE_URL,
+            api_key=QWEN_API_KEY,
+            base_url=QWEN_BASE_URL,
         )
 
     def suggest_dashboard(self, profiles: list[SheetProfile]) -> DashboardSuggestion:
@@ -100,7 +100,7 @@ class LLMClient:
         )
 
         response = self._client.chat.completions.create(
-            model=DEEPSEEK_MODEL,
+            model=QWEN_MODEL,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3,
         )
@@ -113,7 +113,7 @@ class LLMClient:
         except (ValueError, KeyError) as e:
             logger.warning("First LLM parse failed (%s), retrying...", e)
             response = self._client.chat.completions.create(
-                model=DEEPSEEK_MODEL,
+                model=QWEN_MODEL,
                 messages=[
                     {"role": "user", "content": prompt},
                     {"role": "assistant", "content": raw},

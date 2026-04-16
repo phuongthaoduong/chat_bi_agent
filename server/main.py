@@ -44,8 +44,8 @@ _llm_client = None
 def get_llm_client():
     global _llm_client
     if _llm_client is None:
-        from config import DEEPSEEK_API_KEY
-        if DEEPSEEK_API_KEY:
+        from config import QWEN_API_KEY
+        if QWEN_API_KEY:
             from llm.client import LLMClient
             _llm_client = LLMClient()
     return _llm_client
