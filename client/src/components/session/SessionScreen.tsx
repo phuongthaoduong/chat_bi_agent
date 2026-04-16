@@ -1,6 +1,10 @@
-import type { UploadResponse } from "../../types";
+import { useState } from "react";
+import type { UploadResponse, Message } from "../../types";
+import { askQuestion } from "../../api";
 import { DashboardView } from "./DashboardView";
 import { FileInfoBar } from "./FileInfoBar";
+import { ViewToggle } from "./ViewToggle";
+import { ChatView } from "./ChatView";
 
 interface SessionScreenProps {
   data: UploadResponse;
@@ -8,6 +12,34 @@ interface SessionScreenProps {
 }
 
 export function SessionScreen({ data, onReset }: SessionScreenProps) {
+  const [activeView, setActiveView] = useState<"dashboard" | "chat">("dashboard");
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleSendMessage = async (question: string) => {
+    const userMessage: Message = { role: "user", content: question };
+    setMessages((prev) => [...prev, userMessage]);
+    setIsLoading(true);
+
+    try {
+      const response = await askQuestion(data.session_id, question);
+      const assistantMessage: Message = {
+        role: "assistant",
+        content: response.answer,
+        chart: response.chart,
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
+    } catch (err) {
+      const errorMessage: Message = {
+        role: "assistant",
+        content: err instanceof Error ? err.message : "Something went wrong.",
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <div style={{ minHeight: "100vh" }}>
       <div
@@ -20,6 +52,7 @@ export function SessionScreen({ data, onReset }: SessionScreenProps) {
         }}
       >
         <h1 style={{ fontSize: "20px", margin: 0 }}>ChatBI</h1>
+        <ViewToggle activeView={activeView} onToggle={setActiveView} />
         <button
           onClick={onReset}
           style={{
@@ -34,7 +67,11 @@ export function SessionScreen({ data, onReset }: SessionScreenProps) {
         </button>
       </div>
       <FileInfoBar profiles={data.profiles} warnings={data.warnings} />
-      <DashboardView insights={data.insights} charts={data.charts} />
+      {activeView === "dashboard" ? (
+        <DashboardView insights={data.insights} charts={data.charts} />
+      ) : (
+        <ChatView messages={messages} onSend={handleSendMessage} isLoading={isLoading} />
+      )}
     </div>
   );
 }

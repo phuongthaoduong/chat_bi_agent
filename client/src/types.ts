@@ -46,6 +46,17 @@ export interface UploadResponse {
   charts: ChartData[];
 }
 
+export interface ChatResponse {
+  answer: string;
+  chart: ChartData | null;
+}
+
+export interface Message {
+  role: "user" | "assistant";
+  content: string;
+  chart?: ChartData | null;
+}
+
 export interface ErrorResponse {
   error: {
     code: string;
