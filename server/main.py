@@ -1,8 +1,11 @@
+import asyncio
 import logging
 import uuid
+from contextlib import asynccontextmanager
 from io import BytesIO
 
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, Request, UploadFile
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -19,14 +22,34 @@ from models.api import (
     SheetProfileResponse,
     UploadResponse,
 )
-from models.domain import DataSource, Message, ParsedFile, QuestionType, SessionData
+from models.domain import DataSource, Message, ParsedFile, QuestionInterpretation, QuestionType, ResultType, SessionData
 from parsers.registry import get_parser
 from profiler.profiler import DataProfiler
 from session.memory_store import MemorySessionStore
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="ChatBI")
+
+async def _cleanup_loop():
+    while True:
+        await asyncio.sleep(300)  # every 5 minutes
+        removed = session_store.cleanup_expired()
+        if removed > 0:
+            logger.info("Cleaned up %d expired session(s). Active: %d", removed, session_store.session_count())
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    task = asyncio.create_task(_cleanup_loop())
+    yield
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
+app = FastAPI(title="ChatBI", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -49,7 +72,28 @@ def get_llm_client():
         from config import DEEPSEEK_API_KEY
         if DEEPSEEK_API_KEY:
             from llm.client import LLMClient
-            _llm_client = LLMClient()
+            _llm_client = LLMClient(timeout=30)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=400,
+        content=ErrorResponse(
+            error=ErrorDetail(code="VALIDATION_ERROR", message="Invalid request. Please check your input.")
+        ).model_dump(),
+    )
+
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled error")
+    return JSONResponse(
+        status_code=500,
+        content=ErrorResponse(
+            error=ErrorDetail(code="INTERNAL_ERROR", message="An unexpected error occurred. Please try again.")
+        ).model_dump(),
+    )
     return _llm_client
 
 
@@ -91,10 +135,14 @@ async def upload_files(files: list[UploadFile] = File(...)):
 
         content = await upload_file.read()
         if len(content) > MAX_FILE_SIZE_BYTES:
+            size_mb = round(len(content) / (1024 * 1024), 1)
             return JSONResponse(
                 status_code=400,
                 content=ErrorResponse(
-                    error=ErrorDetail(code="FILE_TOO_LARGE", message="File exceeds 5MB limit.")
+                    error=ErrorDetail(
+                        code="FILE_TOO_LARGE",
+                        message=f"File '{filename}' is {size_mb}MB. Maximum allowed is 5MB.",
+                    )
                 ).model_dump(),
             )
 
@@ -260,43 +308,70 @@ async def chat(request: ChatRequest):
                     break
 
             if not target_sheets:
-                return JSONResponse(
-                    status_code=400,
-                    content=ErrorResponse(
-                        error=ErrorDetail(
-                            code="INVALID_SOURCE",
-                            message=f"Could not find dataset '{interpretation.plan.source.file_name} / {interpretation.plan.source.sheet_name}'.",
+                # Source not found — fall back to conversational answer
+                interpretation = QuestionInterpretation(question_type=QuestionType.CONVERSATIONAL, plan=None)
+            else:
+                try:
+                    result = analysis_engine.execute_plan(interpretation.plan, target_sheets)
+                except ValueError as plan_err:
+                    # Bad plan — retry LLM once with the error as feedback
+                    logger.warning("Bad analysis plan (%s), retrying classify...", plan_err)
+                    interpretation = client.interpret_question(
+                        question=request.question,
+                        profiles=session.profiles,
+                        chat_history=session.chat_history,
+                        plan_error=str(plan_err),
+                    )
+                    if interpretation.question_type == QuestionType.COMPUTATIONAL and interpretation.plan:
+                        result = analysis_engine.execute_plan(interpretation.plan, target_sheets)
+                    else:
+                        result = None
+
+                if interpretation.question_type == QuestionType.COMPUTATIONAL and interpretation.plan and result:
+                    # Apply display cap for tabular results
+                    total_rows = None
+                    displayed_rows = None
+                    if result.result_type == ResultType.TABULAR:
+                        total_rows = len(result.data.rows)
+                        if total_rows > 10_000:
+                            displayed_rows = 10_000
+                            result.data.rows = result.data.rows[:10_000]
+
+                    answer = client.format_answer(
+                        question=request.question,
+                        plan=interpretation.plan,
+                        result=result,
+                        profiles=session.profiles,
+                        chat_history=session.chat_history,
+                    )
+
+                    if result.chart_data:
+                        chart_response = ChartDataResponse(
+                            chart_type=result.chart_data.chart_type,
+                            title=result.chart_data.title,
+                            labels=result.chart_data.labels,
+                            datasets=result.chart_data.datasets,
+                            x_axis=result.chart_data.x_axis,
+                            y_axis=result.chart_data.y_axis,
                         )
-                    ).model_dump(),
-                )
 
-            result = analysis_engine.execute_plan(interpretation.plan, target_sheets)
+                    session.chat_history.append(
+                        Message(
+                            role="assistant",
+                            content=answer,
+                            chart=chart_response.model_dump() if chart_response else None,
+                        )
+                    )
+                    session_store.update(request.session_id, session)
+                    return ChatResponse(answer=answer, chart=chart_response, total_rows=total_rows, displayed_rows=displayed_rows)
 
-            answer = client.format_answer(
-                question=request.question,
-                plan=interpretation.plan,
-                result=result,
-                profiles=session.profiles,
-                chat_history=session.chat_history,
-            )
-
-            if result.chart_data:
-                chart_response = ChartDataResponse(
-                    chart_type=result.chart_data.chart_type,
-                    title=result.chart_data.title,
-                    labels=result.chart_data.labels,
-                    datasets=result.chart_data.datasets,
-                    x_axis=result.chart_data.x_axis,
-                    y_axis=result.chart_data.y_axis,
-                )
-        else:
-            answer = client.format_answer(
-                question=request.question,
-                plan=None,
-                result=None,
-                profiles=session.profiles,
-                chat_history=session.chat_history,
-            )
+        answer = client.format_answer(
+            question=request.question,
+            plan=None,
+            result=None,
+            profiles=session.profiles,
+            chat_history=session.chat_history,
+        )
 
         session.chat_history.append(
             Message(

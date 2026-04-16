@@ -27,12 +27,19 @@ export function SessionScreen({ data, onReset }: SessionScreenProps) {
         role: "assistant",
         content: response.answer,
         chart: response.chart,
+        totalRows: response.total_rows,
+        displayedRows: response.displayed_rows,
       };
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (err) {
+      const message = err instanceof Error ? err.message : "Something went wrong.";
+      if (message.includes("Session expired")) {
+        onReset();
+        return;
+      }
       const errorMessage: Message = {
         role: "assistant",
-        content: err instanceof Error ? err.message : "Something went wrong.",
+        content: message,
       };
       setMessages((prev) => [...prev, errorMessage]);
     } finally {

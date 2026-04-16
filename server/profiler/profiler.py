@@ -53,7 +53,12 @@ class DataProfiler:
 
     def _get_sample_values(self, series: pd.Series) -> list:
         non_null = series.dropna()
-        samples = non_null.head(5).tolist()
+        dtype = self._infer_dtype(series)
+        if dtype in ("categorical", "text"):
+            # Return unique values so LLM can identify what this column holds (e.g. East/West/South)
+            samples = non_null.unique()[:10].tolist()
+        else:
+            samples = non_null.head(5).tolist()
         return [self._make_serializable(v) for v in samples]
 
     def _compute_stats(self, series: pd.Series, dtype: str) -> dict | None:

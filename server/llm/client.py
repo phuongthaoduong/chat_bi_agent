@@ -145,10 +145,11 @@ def parse_question_interpretation(raw: str) -> QuestionInterpretation:
 
 
 class LLMClient:
-    def __init__(self):
+    def __init__(self, timeout: int = 30):
         self._client = OpenAI(
             api_key=DEEPSEEK_API_KEY,
             base_url=DEEPSEEK_BASE_URL,
+            timeout=timeout,
         )
 
     def suggest_dashboard(self, profiles: list[SheetProfile]) -> DashboardSuggestion:
@@ -193,6 +194,7 @@ class LLMClient:
         question: str,
         profiles: list[SheetProfile],
         chat_history: list[Message],
+        plan_error: str | None = None,
     ) -> QuestionInterpretation:
         inventory = build_dataset_inventory(profiles)
         detail = build_profile_detail(profiles)
@@ -205,9 +207,21 @@ class LLMClient:
             question=question,
         )
 
+        messages = [{"role": "user", "content": prompt}]
+
+        if plan_error:
+            messages.append({
+                "role": "user",
+                "content": (
+                    f"Your previous plan failed with this error: {plan_error}\n"
+                    "Please fix the plan. Remember: target_fields must be NUMERIC columns, "
+                    "group_by must be CATEGORICAL/TEXT columns, and they must not overlap."
+                ),
+            })
+
         response = self._client.chat.completions.create(
             model=DEEPSEEK_MODEL,
-            messages=[{"role": "user", "content": prompt}],
+            messages=messages,
             temperature=0.2,
         )
 

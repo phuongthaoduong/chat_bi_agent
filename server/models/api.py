@@ -52,6 +52,8 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     chart: ChartDataResponse | None = None
+    total_rows: int | None = None
+    displayed_rows: int | None = None
 
 
 class ErrorDetail(BaseModel):

@@ -15,18 +15,26 @@ def build_dataset_inventory(profiles: list[SheetProfile]) -> str:
 def build_profile_detail(profiles: list[SheetProfile]) -> str:
     sections = []
     for p in profiles:
+        numeric_cols = [c.name for c in p.columns if c.dtype in ("integer", "float")]
+        categorical_cols = [c.name for c in p.columns if c.dtype in ("categorical", "text")]
+        datetime_cols = [c.name for c in p.columns if c.dtype == "datetime"]
         cols = []
         for c in p.columns:
-            col_desc = f"  - {c.name} ({c.dtype}): {c.unique_count} unique"
+            role = "GROUP_BY candidate" if c.dtype in ("categorical", "text", "datetime") else "AGGREGATE candidate"
+            col_desc = f"  - {c.name} ({c.dtype}) [{role}]: {c.unique_count} unique"
             if c.stats:
                 col_desc += f", stats={c.stats}"
             if c.sample_values:
-                col_desc += f", samples={c.sample_values[:3]}"
+                # Show all sample values so LLM can identify what column holds e.g. East/West/South
+                col_desc += f", ALL sample values={c.sample_values}"
             cols.append(col_desc)
-        sections.append(
-            f'Dataset: "{p.source.file_name}" / "{p.source.sheet_name}" '
-            f"({p.row_count} rows)\n" + "\n".join(cols)
+        header = (
+            f'Dataset: "{p.source.file_name}" / "{p.source.sheet_name}" ({p.row_count} rows)\n'
+            f"  NUMERIC columns (use for target_fields to aggregate): {numeric_cols}\n"
+            f"  CATEGORICAL/TEXT columns (use for group_by to slice data): {categorical_cols}\n"
+            f"  DATETIME columns (use for group_by in trends): {datetime_cols}"
         )
+        sections.append(header + "\n" + "\n".join(cols))
     return "\n\n".join(sections)
 
 
@@ -66,7 +74,10 @@ RULES:
 - Only use intents from the allowed list: aggregate, distribution, trend, comparison, top_n, correlation
 - Keep insights concise (1 sentence each), grounded in the stats provided
 - Suggest charts that highlight different aspects of the data
-- For trend analysis, use datetime or ordered categorical columns for group_by"""
+- For trend analysis, use datetime or ordered categorical columns for group_by
+- CRITICAL: target_fields MUST be NUMERIC columns — they are the values to aggregate/sum
+- CRITICAL: group_by MUST be CATEGORICAL or TEXT columns — they are the labels/dimensions
+- CRITICAL: NEVER put the same column in both target_fields and group_by"""
 
 
 CHAT_CLASSIFY_PROMPT = """You are a data analyst. Given the dataset schemas and the user's question, first classify the question, then produce an analysis plan if needed.
@@ -104,11 +115,20 @@ Respond with EXACTLY this JSON structure (no markdown, no code fences):
 }}
 
 RULES:
-- Classify as "computational" if the question requires querying data (aggregations, filtering, ranking, comparisons, trends)
+- Classify as "computational" if the question requires querying data (aggregations, filtering, ranking, comparisons, trends, proportions)
 - Classify as "conversational" if the question is interpretive (explaining charts, summarizing patterns, asking "why", general advice)
 - If "computational", plan MUST include a valid "source" and column references from the schema
 - If "conversational", set plan to null
-- Do NOT include any answer text"""
+- Do NOT include any answer text
+- CRITICAL: target_fields MUST be NUMERIC columns (integers or floats) — they are the values to aggregate/sum
+- CRITICAL: group_by MUST be CATEGORICAL or TEXT columns — they are the labels/categories to slice by
+- CRITICAL: NEVER put the same column in both target_fields and group_by
+- CRITICAL: To identify which column is a region/category column, look at the sample values in the schema (e.g. a column with samples ["East","West","South"] is the region column)
+- EXAMPLE "which product sold the most": target_fields=["sales_amount"], group_by=["product_name"], intent="top_n", chart_type="bar"
+- EXAMPLE "which product has the most inventory": target_fields=["inventory_qty"], group_by=["product_name"], intent="top_n", chart_type="bar"
+- EXAMPLE "proportion/percentage/share of revenue by region": target_fields=["revenue"], group_by=["region"], intent="aggregate", chart_type="pie"
+- For proportion/percentage/share/breakdown questions, always use intent="aggregate" and chart_type="pie"
+- If a question asks "which X has the most/least Y", X goes in group_by (categorical) and Y goes in target_fields (numeric)"""
 
 
 CHAT_FORMAT_COMPUTATIONAL_PROMPT = """You are a data analyst assistant. The user asked a question and the system has computed the result. Write a clear, concise answer based on the actual data provided.
@@ -122,8 +142,10 @@ COMPUTED RESULT:
 RULES:
 - Only state facts that appear in the computed result
 - Do not invent or estimate numbers
-- Keep the answer to 1-3 sentences
-- Use natural language appropriate for a non-technical business user"""
+- Keep the answer to 1-4 sentences
+- Use natural language appropriate for a non-technical business user
+- If the question asks for proportions, percentages, or shares: compute the total of all values, then express each item as a percentage of the total (e.g. "East: 45%, West: 30%, South: 25%")
+- If the question asks for a ranking or top items: name the winner clearly first"""
 
 
 CHAT_FORMAT_CONVERSATIONAL_PROMPT = """You are a data analyst assistant. The user asked an interpretive question. Answer based on the dataset context and conversation history provided.

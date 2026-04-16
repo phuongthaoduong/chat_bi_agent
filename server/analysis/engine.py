@@ -64,6 +64,18 @@ class AnalysisEngine:
         if missing:
             raise ValueError(f"Invalid column(s): {', '.join(sorted(missing))}")
 
+        # Prevent groupby/target overlap which causes pandas "cannot insert X" error
+        if plan.group_by and plan.intent in (
+            AnalysisIntent.AGGREGATE, AnalysisIntent.TOP_N,
+            AnalysisIntent.TREND, AnalysisIntent.COMPARISON,
+        ):
+            overlap = set(plan.target_fields) & set(plan.group_by)
+            if overlap:
+                raise ValueError(
+                    f"Column(s) {overlap} cannot be used in both target_fields and group_by. "
+                    f"Use a numeric column for target_fields and a categorical column for group_by."
+                )
+
     def _apply_filters(
         self, df: pd.DataFrame, filters: list[FilterCondition] | None
     ) -> pd.DataFrame:

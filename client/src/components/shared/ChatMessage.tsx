@@ -33,6 +33,11 @@ export function ChatMessage({ message }: ChatMessageProps) {
             <ChartCard data={message.chart} />
           </div>
         )}
+        {message.totalRows != null && message.displayedRows != null && message.totalRows > message.displayedRows && (
+          <p style={{ fontSize: "12px", color: "#92400e", marginTop: "8px" }}>
+            Showing {message.displayedRows.toLocaleString()} of {message.totalRows.toLocaleString()} rows. Charts and aggregations reflect the full dataset.
+          </p>
+        )}
       </div>
     </div>
   );

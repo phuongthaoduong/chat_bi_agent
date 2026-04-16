@@ -46,7 +46,21 @@ export function FileDropzone({ onFilesSelected, isLoading, error }: FileDropzone
       }}
     >
       {isLoading ? (
-        <p>Uploading and analyzing...</p>
+        <div>
+          <div
+            style={{
+              width: "40px",
+              height: "40px",
+              border: "3px solid #e5e7eb",
+              borderTopColor: "#4f46e5",
+              borderRadius: "50%",
+              animation: "spin 1s linear infinite",
+              margin: "0 auto 12px",
+            }}
+          />
+          <p style={{ fontSize: "16px", marginBottom: "4px" }}>Uploading and analyzing your data...</p>
+          <p style={{ fontSize: "14px", color: "#6b7280" }}>This may take a few seconds</p>
+        </div>
       ) : (
         <>
           <p style={{ fontSize: "18px", marginBottom: "8px" }}>
