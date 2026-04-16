@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { UploadResponse } from "./types";
+import type { UploadResponse } from "./types";
 import { UploadScreen } from "./components/upload/UploadScreen";
 import { SessionScreen } from "./components/session/SessionScreen";
 

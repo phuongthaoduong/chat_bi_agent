@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { uploadFiles } from "../../api";
-import { UploadResponse } from "../../types";
+import type { UploadResponse } from "../../types";
 import { FileDropzone } from "./FileDropzone";
 
 interface UploadScreenProps {

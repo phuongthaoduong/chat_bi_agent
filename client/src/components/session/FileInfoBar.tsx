@@ -1,4 +1,4 @@
-import { SheetProfile } from "../../types";
+import type { SheetProfile } from "../../types";
 
 interface FileInfoBarProps {
   profiles: SheetProfile[];

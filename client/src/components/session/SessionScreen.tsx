@@ -1,4 +1,4 @@
-import { UploadResponse } from "../../types";
+import type { UploadResponse } from "../../types";
 import { FileInfoBar } from "./FileInfoBar";
 
 interface SessionScreenProps {
