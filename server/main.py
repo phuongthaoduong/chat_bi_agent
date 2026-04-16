@@ -9,6 +9,8 @@ from fastapi.responses import JSONResponse
 from analysis.engine import AnalysisEngine
 from config import MAX_FILE_SIZE_BYTES, MAX_SESSIONS, SESSION_TTL_MINUTES
 from models.api import (
+    ChatRequest,
+    ChatResponse,
     ChartDataResponse,
     ColumnProfileResponse,
     ErrorDetail,
@@ -17,7 +19,7 @@ from models.api import (
     SheetProfileResponse,
     UploadResponse,
 )
-from models.domain import DataSource, ParsedFile, SessionData
+from models.domain import DataSource, Message, ParsedFile, QuestionType, SessionData
 from parsers.registry import get_parser
 from profiler.profiler import DataProfiler
 from session.memory_store import MemorySessionStore
@@ -44,8 +46,8 @@ _llm_client = None
 def get_llm_client():
     global _llm_client
     if _llm_client is None:
-        from config import QWEN_API_KEY
-        if QWEN_API_KEY:
+        from config import DEEPSEEK_API_KEY
+        if DEEPSEEK_API_KEY:
             from llm.client import LLMClient
             _llm_client = LLMClient()
     return _llm_client
@@ -217,4 +219,155 @@ async def upload_files(files: list[UploadFile] = File(...)):
         warnings=warnings,
         insights=insights,
         charts=chart_responses,
+    )
+
+
+@app.post("/api/chat")
+async def chat(request: ChatRequest):
+    session = session_store.get(request.session_id)
+    if session is None:
+        return JSONResponse(
+            status_code=404,
+            content=ErrorResponse(
+                error=ErrorDetail(code="SESSION_NOT_FOUND", message="Session expired. Please upload your files again.")
+            ).model_dump(),
+        )
+
+    client = get_llm_client()
+    if client is None:
+        return JSONResponse(
+            status_code=502,
+            content=ErrorResponse(
+                error=ErrorDetail(code="LLM_UNAVAILABLE", message="Analysis service is not configured.")
+            ).model_dump(),
+        )
+
+    session.chat_history.append(Message(role="user", content=request.question))
+
+    try:
+        interpretation = client.interpret_question(
+            question=request.question,
+            profiles=session.profiles,
+            chat_history=session.chat_history,
+        )
+
+        chart_response = None
+        if interpretation.question_type == QuestionType.COMPUTATIONAL and interpretation.plan:
+            target_sheets = []
+            for pf in session.files:
+                if pf.name == interpretation.plan.source.file_name:
+                    target_sheets = pf.sheets
+                    break
+
+            if not target_sheets:
+                return JSONResponse(
+                    status_code=400,
+                    content=ErrorResponse(
+                        error=ErrorDetail(
+                            code="INVALID_SOURCE",
+                            message=f"Could not find dataset '{interpretation.plan.source.file_name} / {interpretation.plan.source.sheet_name}'.",
+                        )
+                    ).model_dump(),
+                )
+
+            result = analysis_engine.execute_plan(interpretation.plan, target_sheets)
+
+            answer = client.format_answer(
+                question=request.question,
+                plan=interpretation.plan,
+                result=result,
+                profiles=session.profiles,
+                chat_history=session.chat_history,
+            )
+
+            if result.chart_data:
+                chart_response = ChartDataResponse(
+                    chart_type=result.chart_data.chart_type,
+                    title=result.chart_data.title,
+                    labels=result.chart_data.labels,
+                    datasets=result.chart_data.datasets,
+                    x_axis=result.chart_data.x_axis,
+                    y_axis=result.chart_data.y_axis,
+                )
+        else:
+            answer = client.format_answer(
+                question=request.question,
+                plan=None,
+                result=None,
+                profiles=session.profiles,
+                chat_history=session.chat_history,
+            )
+
+        session.chat_history.append(
+            Message(
+                role="assistant",
+                content=answer,
+                chart=chart_response.model_dump() if chart_response else None,
+            )
+        )
+        session_store.update(request.session_id, session)
+
+        return ChatResponse(answer=answer, chart=chart_response)
+
+    except ValueError as e:
+        return JSONResponse(
+            status_code=400,
+            content=ErrorResponse(
+                error=ErrorDetail(code="INVALID_ANALYSIS", message=str(e))
+            ).model_dump(),
+        )
+    except Exception:
+        logger.exception("Chat error")
+        return JSONResponse(
+            status_code=502,
+            content=ErrorResponse(
+                error=ErrorDetail(code="LLM_UNAVAILABLE", message="Analysis service is temporarily unavailable.")
+            ).model_dump(),
+        )
+
+
+@app.get("/api/session/{session_id}")
+async def get_session(session_id: str):
+    session = session_store.get(session_id)
+    if session is None:
+        return JSONResponse(
+            status_code=404,
+            content=ErrorResponse(
+                error=ErrorDetail(code="SESSION_NOT_FOUND", message="Session expired. Please upload your files again.")
+            ).model_dump(),
+        )
+
+    file_infos = []
+    profile_responses = []
+    for profile in session.profiles:
+        file_infos.append(
+            FileInfo(
+                name=profile.source.file_name,
+                sheet_name=profile.source.sheet_name,
+                rows=profile.row_count,
+                columns=[c.name for c in profile.columns],
+            )
+        )
+        profile_responses.append(
+            SheetProfileResponse(
+                file_name=profile.source.file_name,
+                sheet_name=profile.source.sheet_name,
+                row_count=profile.row_count,
+                column_count=profile.column_count,
+                columns=[
+                    ColumnProfileResponse(
+                        name=c.name, dtype=c.dtype, null_count=c.null_count,
+                        null_pct=c.null_pct, unique_count=c.unique_count,
+                        sample_values=c.sample_values, stats=c.stats,
+                    )
+                    for c in profile.columns
+                ],
+            )
+        )
+
+    return UploadResponse(
+        session_id=session_id,
+        files=file_infos,
+        profiles=profile_responses,
+        warnings=[],
     )

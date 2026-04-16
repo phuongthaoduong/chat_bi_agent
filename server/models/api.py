@@ -44,6 +44,16 @@ class UploadResponse(BaseModel):
     charts: list[ChartDataResponse] = []
 
 
+class ChatRequest(BaseModel):
+    session_id: str
+    question: str
+
+
+class ChatResponse(BaseModel):
+    answer: str
+    chart: ChartDataResponse | None = None
+
+
 class ErrorDetail(BaseModel):
     code: str
     message: str
