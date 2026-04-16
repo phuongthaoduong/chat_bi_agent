@@ -1,5 +1,23 @@
-from fastapi import FastAPI
+import uuid
+from io import BytesIO
+
+from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from config import MAX_FILE_SIZE_BYTES, MAX_SESSIONS, SESSION_TTL_MINUTES, SUPPORTED_EXTENSIONS
+from models.api import (
+    ColumnProfileResponse,
+    ErrorDetail,
+    ErrorResponse,
+    FileInfo,
+    SheetProfileResponse,
+    UploadResponse,
+)
+from models.domain import DataSource, ParsedFile, SessionData
+from parsers.registry import get_parser
+from profiler.profiler import DataProfiler
+from session.memory_store import MemorySessionStore
 
 app = FastAPI(title="ChatBI")
 
@@ -11,7 +29,126 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+session_store = MemorySessionStore(max_sessions=MAX_SESSIONS, ttl_minutes=SESSION_TTL_MINUTES)
+profiler = DataProfiler()
+
 
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.post("/api/upload")
+async def upload_files(files: list[UploadFile] = File(...)):
+    if session_store.session_count() >= MAX_SESSIONS:
+        return JSONResponse(
+            status_code=503,
+            content=ErrorResponse(
+                error=ErrorDetail(code="SERVICE_AT_CAPACITY", message="Server is busy. Please try again in a few minutes.")
+            ).model_dump(),
+        )
+
+    parsed_files: list[ParsedFile] = []
+    all_profiles = []
+    file_infos: list[FileInfo] = []
+    warnings: list[str] = []
+
+    for upload_file in files:
+        filename = upload_file.filename or "unknown"
+
+        try:
+            parser = get_parser(filename)
+        except ValueError:
+            return JSONResponse(
+                status_code=400,
+                content=ErrorResponse(
+                    error=ErrorDetail(
+                        code="INVALID_FILE_FORMAT",
+                        message="Unsupported format. Please upload .xlsx, .xls, or .csv files.",
+                    )
+                ).model_dump(),
+            )
+
+        content = await upload_file.read()
+        if len(content) > MAX_FILE_SIZE_BYTES:
+            return JSONResponse(
+                status_code=400,
+                content=ErrorResponse(
+                    error=ErrorDetail(code="FILE_TOO_LARGE", message="File exceeds 5MB limit.")
+                ).model_dump(),
+            )
+
+        try:
+            parsed = parser.parse(filename, BytesIO(content))
+        except ValueError:
+            return JSONResponse(
+                status_code=400,
+                content=ErrorResponse(
+                    error=ErrorDetail(code="EMPTY_FILE", message="This file appears to be empty.")
+                ).model_dump(),
+            )
+        except Exception:
+            return JSONResponse(
+                status_code=400,
+                content=ErrorResponse(
+                    error=ErrorDetail(code="PARSE_ERROR", message="Could not read this file. It may be corrupted.")
+                ).model_dump(),
+            )
+
+        parsed_files.append(parsed)
+
+        for sheet in parsed.sheets:
+            source = DataSource(file_name=filename, sheet_name=sheet.name)
+            profile = profiler.profile(sheet, source)
+            all_profiles.append(profile)
+
+            file_infos.append(
+                FileInfo(
+                    name=filename,
+                    sheet_name=sheet.name,
+                    rows=profile.row_count,
+                    columns=[c.name for c in profile.columns],
+                )
+            )
+
+    session_id = str(uuid.uuid4())
+    memory_bytes = sum(
+        sheet.df.memory_usage(deep=True).sum()
+        for pf in parsed_files
+        for sheet in pf.sheets
+    )
+    session_data = SessionData(
+        files=parsed_files,
+        profiles=all_profiles,
+        memory_bytes=int(memory_bytes),
+    )
+    session_store.create(session_id, session_data)
+
+    profile_responses = [
+        SheetProfileResponse(
+            file_name=p.source.file_name,
+            sheet_name=p.source.sheet_name,
+            row_count=p.row_count,
+            column_count=p.column_count,
+            columns=[
+                ColumnProfileResponse(
+                    name=c.name,
+                    dtype=c.dtype,
+                    null_count=c.null_count,
+                    null_pct=c.null_pct,
+                    unique_count=c.unique_count,
+                    sample_values=c.sample_values,
+                    stats=c.stats,
+                )
+                for c in p.columns
+            ],
+        )
+        for p in all_profiles
+    ]
+
+    return UploadResponse(
+        session_id=session_id,
+        files=file_infos,
+        profiles=profile_responses,
+        warnings=warnings,
+    )
