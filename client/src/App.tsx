@@ -1,17 +1,20 @@
 import { useState } from "react";
+import { UploadResponse } from "./types";
+import { UploadScreen } from "./components/upload/UploadScreen";
 
 function App() {
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [uploadData, setUploadData] = useState<UploadResponse | null>(null);
 
-  if (!sessionId) {
-    return (
-      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100vh" }}>
-        <p>ChatBI — Upload screen coming next</p>
-      </div>
-    );
+  if (!uploadData) {
+    return <UploadScreen onUploadComplete={setUploadData} />;
   }
 
-  return <div>Session: {sessionId}</div>;
+  return (
+    <div style={{ padding: "24px" }}>
+      <h2>Session: {uploadData.session_id}</h2>
+      <pre>{JSON.stringify(uploadData, null, 2)}</pre>
+    </div>
+  );
 }
 
 export default App;
