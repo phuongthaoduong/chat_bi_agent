@@ -5,7 +5,7 @@ from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from config import MAX_FILE_SIZE_BYTES, MAX_SESSIONS, SESSION_TTL_MINUTES, SUPPORTED_EXTENSIONS
+from config import MAX_FILE_SIZE_BYTES, MAX_SESSIONS, SESSION_TTL_MINUTES
 from models.api import (
     ColumnProfileResponse,
     ErrorDetail,
@@ -122,7 +122,15 @@ async def upload_files(files: list[UploadFile] = File(...)):
         profiles=all_profiles,
         memory_bytes=int(memory_bytes),
     )
-    session_store.create(session_id, session_data)
+    try:
+        session_store.create(session_id, session_data)
+    except RuntimeError:
+        return JSONResponse(
+            status_code=503,
+            content=ErrorResponse(
+                error=ErrorDetail(code="SERVICE_AT_CAPACITY", message="Server is busy. Please try again in a few minutes.")
+            ).model_dump(),
+        )
 
     profile_responses = [
         SheetProfileResponse(
