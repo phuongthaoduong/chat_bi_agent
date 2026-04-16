@@ -1,4 +1,5 @@
 import type { UploadResponse } from "../../types";
+import { DashboardView } from "./DashboardView";
 import { FileInfoBar } from "./FileInfoBar";
 
 interface SessionScreenProps {
@@ -33,9 +34,7 @@ export function SessionScreen({ data, onReset }: SessionScreenProps) {
         </button>
       </div>
       <FileInfoBar profiles={data.profiles} warnings={data.warnings} />
-      <div style={{ padding: "24px", textAlign: "center", color: "#9ca3af" }}>
-        Dashboard coming in Phase 2
-      </div>
+      <DashboardView insights={data.insights} charts={data.charts} />
     </div>
   );
 }

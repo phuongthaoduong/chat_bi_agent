@@ -23,11 +23,27 @@ export interface SheetProfile {
   columns: ColumnProfile[];
 }
 
+export interface ChartDataset {
+  label: string;
+  data: number[];
+}
+
+export interface ChartData {
+  chart_type: string;
+  title: string;
+  labels: string[];
+  datasets: ChartDataset[];
+  x_axis?: string | null;
+  y_axis?: string | null;
+}
+
 export interface UploadResponse {
   session_id: string;
   files: FileInfo[];
   profiles: SheetProfile[];
   warnings: string[];
+  insights: string[];
+  charts: ChartData[];
 }
 
 export interface ErrorResponse {
