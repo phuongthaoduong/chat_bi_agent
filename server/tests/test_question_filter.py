@@ -63,3 +63,23 @@ from llm.prompts import CHAT_CLASSIFY_PROMPT
 def test_classify_prompt_includes_irrelevant_type():
     assert '"irrelevant"' in CHAT_CLASSIFY_PROMPT
     assert "not related to the data" in CHAT_CLASSIFY_PROMPT.lower() or "unrelated" in CHAT_CLASSIFY_PROMPT.lower()
+
+
+import json
+from llm.client import parse_question_interpretation
+from llm.constants import IRRELEVANT_REJECTION_MESSAGE
+
+
+def test_parse_irrelevant_question():
+    raw = json.dumps({
+        "question_type": "irrelevant",
+        "plan": None,
+    })
+    result = parse_question_interpretation(raw)
+    assert result.question_type == QuestionType.IRRELEVANT
+    assert result.plan is None
+
+
+def test_rejection_message_exists():
+    assert isinstance(IRRELEVANT_REJECTION_MESSAGE, str)
+    assert len(IRRELEVANT_REJECTION_MESSAGE) > 10
