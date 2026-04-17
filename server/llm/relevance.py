@@ -15,7 +15,6 @@ _IRRELEVANT_PATTERNS = [
         r"\bmeaning\s+of\s+life\b",
         r"\b(recipe|cooking|baking)\s+(for|instructions)\b",
         r"\b(help\s+me\s+)?(write|draft|compose)\s+(an?\s+)?(essay|blog|article|resume|cv|cover letter)\b",
-        r"\b(what|who)\s+(is|are|was|were)\s+[A-Z][a-z]+\s+[A-Z]",
         r"\bwrite\s+(me\s+)?(python|javascript|java|html|css|sql|code)\b",
     ]
 ]

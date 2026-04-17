@@ -52,8 +52,20 @@ class TestKeywordFilter:
         "explain the chart",
         "why is revenue declining",
         "summarize the main trends",
+        "tell me a joke about sales data",
+        "write a poem about revenue trends",
     ])
     def test_allows_data_questions(self, question):
+        assert is_obviously_irrelevant(question) is False
+
+    @pytest.mark.parametrize("question", [
+        "",
+        "   ",
+        "hello",
+        "thanks",
+    ])
+    def test_ambiguous_passes_through(self, question):
+        """Ambiguous or empty questions should NOT be blocked — let LLM decide."""
         assert is_obviously_irrelevant(question) is False
 
 
