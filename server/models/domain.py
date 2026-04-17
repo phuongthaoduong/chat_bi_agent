@@ -54,6 +54,7 @@ class Message:
 
 class AnalysisIntent(Enum):
     AGGREGATE = "aggregate"
+    COUNT = "count"
     DISTRIBUTION = "distribution"
     TREND = "trend"
     COMPARISON = "comparison"
@@ -137,12 +138,13 @@ class AnalysisResult:
 @dataclass
 class DashboardSuggestion:
     insights: list[str]
-    plans: list[AnalysisPlan]
+    plan: AnalysisPlan | None
 
 
 class QuestionType(Enum):
     COMPUTATIONAL = "computational"
     CONVERSATIONAL = "conversational"
+    IRRELEVANT = "irrelevant"
 
 
 @dataclass
