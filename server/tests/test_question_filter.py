@@ -14,3 +14,44 @@ def test_question_interpretation_irrelevant():
     )
     assert interp.question_type == QuestionType.IRRELEVANT
     assert interp.plan is None
+
+
+from llm.relevance import is_obviously_irrelevant
+
+
+class TestKeywordFilter:
+    """Layer 1: zero-cost keyword heuristic."""
+
+    @pytest.mark.parametrize("question", [
+        "tell me a joke",
+        "write a poem about love",
+        "what's the weather in Paris",
+        "who is the president of the United States",
+        "can you help me write an essay",
+        "translate this to French",
+        "what is the meaning of life",
+        "play a game with me",
+        "write me Python code to sort a list",
+        "how do I cook pasta",
+    ])
+    def test_catches_irrelevant(self, question):
+        assert is_obviously_irrelevant(question) is True
+
+    @pytest.mark.parametrize("question", [
+        "what is the total revenue",
+        "show me sales by region",
+        "how many orders were placed",
+        "which product sold the most",
+        "average price per category",
+        "monthly trend of revenue",
+        "top 5 customers by spend",
+        "what is the distribution of ages",
+        "compare sales across quarters",
+        "count rows where status is active",
+        "what does the data show",
+        "explain the chart",
+        "why is revenue declining",
+        "summarize the main trends",
+    ])
+    def test_allows_data_questions(self, question):
+        assert is_obviously_irrelevant(question) is False
