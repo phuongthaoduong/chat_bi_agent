@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from analysis.engine import AnalysisEngine
 from config import MAX_FILE_SIZE_BYTES, MAX_SESSIONS, SESSION_TTL_MINUTES
 from models.api import (
+    AddFilesResponse,
     ChatRequest,
     ChatResponse,
     ChartDataResponse,
@@ -25,6 +26,8 @@ from models.api import (
 from models.domain import DataSource, Message, ParsedFile, QuestionInterpretation, QuestionType, ResultType, SessionData
 from parsers.registry import get_parser
 from profiler.profiler import DataProfiler
+from llm.relevance import is_obviously_irrelevant
+from llm.constants import IRRELEVANT_REJECTION_MESSAGE
 from session.memory_store import MemorySessionStore
 
 logger = logging.getLogger(__name__)
@@ -73,6 +76,7 @@ def get_llm_client():
         if DEEPSEEK_API_KEY:
             from llm.client import LLMClient
             _llm_client = LLMClient(timeout=30)
+    return _llm_client
 
 
 @app.exception_handler(RequestValidationError)
@@ -94,7 +98,6 @@ async def general_exception_handler(request: Request, exc: Exception):
             error=ErrorDetail(code="INTERNAL_ERROR", message="An unexpected error occurred. Please try again.")
         ).model_dump(),
     )
-    return _llm_client
 
 
 @app.get("/api/health")
@@ -202,7 +205,7 @@ async def upload_files(files: list[UploadFile] = File(...)):
 
     # Generate dashboard via LLM (graceful degradation if unavailable)
     insights: list[str] = []
-    chart_responses: list[ChartDataResponse] = []
+    chart_response: ChartDataResponse | None = None
 
     client = get_llm_client()
     if client:
@@ -210,20 +213,17 @@ async def upload_files(files: list[UploadFile] = File(...)):
             suggestion = client.suggest_dashboard(all_profiles)
             insights = suggestion.insights
 
-            for plan in suggestion.plans:
+            if suggestion.plan:
                 try:
                     target_sheets = []
                     for pf in parsed_files:
-                        if pf.name == plan.source.file_name:
+                        if pf.name == suggestion.plan.source.file_name:
                             target_sheets = pf.sheets
                             break
-                    if not target_sheets:
-                        continue
-
-                    result = analysis_engine.execute_plan(plan, target_sheets)
-                    if result.chart_data:
-                        chart_responses.append(
-                            ChartDataResponse(
+                    if target_sheets:
+                        result = analysis_engine.execute_plan(suggestion.plan, target_sheets)
+                        if result.chart_data:
+                            chart_response = ChartDataResponse(
                                 chart_type=result.chart_data.chart_type,
                                 title=result.chart_data.title,
                                 labels=result.chart_data.labels,
@@ -231,10 +231,8 @@ async def upload_files(files: list[UploadFile] = File(...)):
                                 x_axis=result.chart_data.x_axis,
                                 y_axis=result.chart_data.y_axis,
                             )
-                        )
                 except Exception as e:
-                    logger.warning("Failed to execute plan: %s", e)
-                    continue
+                    logger.warning("Failed to execute dashboard plan: %s", e)
         except Exception as e:
             logger.warning("LLM dashboard generation failed: %s", e)
 
@@ -266,7 +264,7 @@ async def upload_files(files: list[UploadFile] = File(...)):
         profiles=profile_responses,
         warnings=warnings,
         insights=insights,
-        charts=chart_responses,
+        chart=chart_response,
     )
 
 
@@ -290,6 +288,14 @@ async def chat(request: ChatRequest):
             ).model_dump(),
         )
 
+    # --- Layer 1: zero-cost keyword heuristic ---
+    if is_obviously_irrelevant(request.question):
+        rejection = IRRELEVANT_REJECTION_MESSAGE
+        session.chat_history.append(Message(role="user", content=request.question))
+        session.chat_history.append(Message(role="assistant", content=rejection))
+        session_store.update(request.session_id, session)
+        return ChatResponse(answer=rejection)
+
     session.chat_history.append(Message(role="user", content=request.question))
 
     try:
@@ -298,6 +304,13 @@ async def chat(request: ChatRequest):
             profiles=session.profiles,
             chat_history=session.chat_history,
         )
+
+        # --- Layer 2: LLM classified as irrelevant ---
+        if interpretation.question_type == QuestionType.IRRELEVANT:
+            rejection = IRRELEVANT_REJECTION_MESSAGE
+            session.chat_history.append(Message(role="assistant", content=rejection))
+            session_store.update(request.session_id, session)
+            return ChatResponse(answer=rejection)
 
         chart_response = None
         if interpretation.question_type == QuestionType.COMPUTATIONAL and interpretation.plan:
@@ -316,11 +329,20 @@ async def chat(request: ChatRequest):
                 except ValueError as plan_err:
                     # Bad plan — retry LLM once with the error as feedback
                     logger.warning("Bad analysis plan (%s), retrying classify...", plan_err)
+                    # Build column list for retry context
+                    valid_cols = []
+                    for p in session.profiles:
+                        for c in p.columns:
+                            valid_cols.append(f'"{c.name}" ({c.dtype})')
+                    plan_error_with_cols = (
+                        f"{plan_err}\n"
+                        f"Available columns: {', '.join(valid_cols)}"
+                    )
                     interpretation = client.interpret_question(
                         question=request.question,
                         profiles=session.profiles,
                         chat_history=session.chat_history,
-                        plan_error=str(plan_err),
+                        plan_error=plan_error_with_cols,
                     )
                     if interpretation.question_type == QuestionType.COMPUTATIONAL and interpretation.plan:
                         result = analysis_engine.execute_plan(interpretation.plan, target_sheets)
@@ -399,6 +421,160 @@ async def chat(request: ChatRequest):
                 error=ErrorDetail(code="LLM_UNAVAILABLE", message="Analysis service is temporarily unavailable.")
             ).model_dump(),
         )
+
+
+@app.post("/api/session/{session_id}/files")
+async def add_files_to_session(session_id: str, files: list[UploadFile] = File(...)):
+    session = session_store.get(session_id)
+    if session is None:
+        return JSONResponse(
+            status_code=404,
+            content=ErrorResponse(
+                error=ErrorDetail(code="SESSION_NOT_FOUND", message="Session expired. Please upload your files again.")
+            ).model_dump(),
+        )
+
+    new_parsed_files: list[ParsedFile] = []
+    new_profiles = []
+    new_file_infos: list[FileInfo] = []
+    warnings: list[str] = []
+    replaced: list[str] = []
+
+    for upload_file in files:
+        filename = upload_file.filename or "unknown"
+
+        try:
+            parser = get_parser(filename)
+        except ValueError:
+            return JSONResponse(
+                status_code=400,
+                content=ErrorResponse(
+                    error=ErrorDetail(
+                        code="INVALID_FILE_FORMAT",
+                        message="Unsupported format. Please upload .xlsx, .xls, or .csv files.",
+                    )
+                ).model_dump(),
+            )
+
+        content = await upload_file.read()
+        if len(content) > MAX_FILE_SIZE_BYTES:
+            size_mb = round(len(content) / (1024 * 1024), 1)
+            return JSONResponse(
+                status_code=400,
+                content=ErrorResponse(
+                    error=ErrorDetail(
+                        code="FILE_TOO_LARGE",
+                        message=f"File '{filename}' is {size_mb}MB. Maximum allowed is 5MB.",
+                    )
+                ).model_dump(),
+            )
+
+        try:
+            parsed = parser.parse(filename, BytesIO(content))
+        except ValueError:
+            return JSONResponse(
+                status_code=400,
+                content=ErrorResponse(
+                    error=ErrorDetail(code="EMPTY_FILE", message="This file appears to be empty.")
+                ).model_dump(),
+            )
+        except Exception:
+            return JSONResponse(
+                status_code=400,
+                content=ErrorResponse(
+                    error=ErrorDetail(code="PARSE_ERROR", message="Could not read this file. It may be corrupted.")
+                ).model_dump(),
+            )
+
+        # Replace existing file with same name if present
+        existing_names = {pf.name for pf in session.files}
+        if filename in existing_names:
+            replaced.append(filename)
+            session.files = [pf for pf in session.files if pf.name != filename]
+            session.profiles = [p for p in session.profiles if p.source.file_name != filename]
+
+        file_profiles = []
+        for sheet in parsed.sheets:
+            source = DataSource(file_name=filename, sheet_name=sheet.name)
+            profile = profiler.profile(sheet, source)
+            file_profiles.append(profile)
+            new_file_infos.append(
+                FileInfo(
+                    name=filename,
+                    sheet_name=sheet.name,
+                    rows=profile.row_count,
+                    columns=[c.name for c in profile.columns],
+                )
+            )
+
+        session.files.append(parsed)
+        session.profiles.extend(file_profiles)
+        new_parsed_files.append(parsed)
+        new_profiles.extend(file_profiles)
+
+    # Generate dashboard chart for the newly added files only
+    new_chart_response: ChartDataResponse | None = None
+    new_insights: list[str] = []
+    client = get_llm_client()
+    if client and new_profiles:
+        try:
+            suggestion = client.suggest_dashboard(new_profiles)
+            new_insights = suggestion.insights
+            if suggestion.plan:
+                try:
+                    target_sheets = []
+                    for pf in new_parsed_files:
+                        if pf.name == suggestion.plan.source.file_name:
+                            target_sheets = pf.sheets
+                            break
+                    if target_sheets:
+                        result = analysis_engine.execute_plan(suggestion.plan, target_sheets)
+                        if result.chart_data:
+                            new_chart_response = ChartDataResponse(
+                                chart_type=result.chart_data.chart_type,
+                                title=result.chart_data.title,
+                                labels=result.chart_data.labels,
+                                datasets=result.chart_data.datasets,
+                                x_axis=result.chart_data.x_axis,
+                                y_axis=result.chart_data.y_axis,
+                            )
+                except Exception as e:
+                    logger.warning("Failed to execute plan for added file: %s", e)
+        except Exception as e:
+            logger.warning("LLM dashboard generation failed for added file: %s", e)
+
+    session_store.update(session_id, session)
+
+    profile_responses = [
+        SheetProfileResponse(
+            file_name=p.source.file_name,
+            sheet_name=p.source.sheet_name,
+            row_count=p.row_count,
+            column_count=p.column_count,
+            columns=[
+                ColumnProfileResponse(
+                    name=c.name,
+                    dtype=c.dtype,
+                    null_count=c.null_count,
+                    null_pct=c.null_pct,
+                    unique_count=c.unique_count,
+                    sample_values=c.sample_values,
+                    stats=c.stats,
+                )
+                for c in p.columns
+            ],
+        )
+        for p in new_profiles
+    ]
+
+    return AddFilesResponse(
+        files=new_file_infos,
+        profiles=profile_responses,
+        chart=new_chart_response,
+        insights=new_insights,
+        warnings=warnings,
+        replaced=replaced,
+    )
 
 
 @app.get("/api/session/{session_id}")
