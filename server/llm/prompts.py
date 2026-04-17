@@ -38,7 +38,7 @@ def build_profile_detail(profiles: list[SheetProfile]) -> str:
     return "\n\n".join(sections)
 
 
-DASHBOARD_SYSTEM_PROMPT = """You are a data analyst. Given the dataset schemas below, suggest 3-5 charts that give a business user the most useful overview.
+DASHBOARD_SYSTEM_PROMPT = """You are a data analyst. Given the dataset schemas below, suggest exactly 1 joint chart that gives a business user the most useful overview of the data, plus 2-3 key insights.
 
 AVAILABLE DATASETS:
 {dataset_inventory}
@@ -49,35 +49,36 @@ DETAILED SCHEMA:
 Respond with EXACTLY this JSON structure (no markdown, no code fences):
 {{
   "insights": ["string — 1 sentence each, based on the stats provided"],
-  "plans": [
-    {{
-      "source": {{ "file_name": "...", "sheet_name": "..." }},
-      "intent": "aggregate|distribution|trend|comparison|top_n|correlation",
-      "target_fields": ["column_name"],
-      "group_by": ["column_name"] or null,
-      "filters": null,
-      "sort": {{"field": "...", "direction": "asc|desc"}} or null,
-      "limit": number or null,
-      "chart": {{
-        "chart_type": "bar|line|pie|scatter",
-        "title": "string",
-        "x_axis": "column_name" or null,
-        "y_axis": "column_name" or null
-      }}
+  "plan": {{
+    "source": {{ "file_name": "...", "sheet_name": "..." }},
+    "intent": "aggregate|count|distribution|trend|comparison|top_n|correlation",
+    "target_fields": ["column_name"],
+    "group_by": ["column_name"] or null,
+    "filters": null,
+    "sort": {{"field": "...", "direction": "asc|desc"}} or null,
+    "limit": number or null,
+    "chart": {{
+      "chart_type": "bar|line|pie|scatter",
+      "title": "string",
+      "x_axis": "column_name" or null,
+      "y_axis": "column_name" or null
     }}
-  ]
+  }}
 }}
 
 RULES:
-- Every plan MUST include a "source" specifying which dataset to query
+- Return exactly ONE plan that produces the single most informative chart
+- Prefer a chart that combines multiple dimensions (e.g. grouped bar with multiple target_fields, or a comparison across categories)
+- The plan MUST include a "chart" spec — this is the overview chart the user sees first
+- The plan MUST include a "source" specifying which dataset to query
 - Only reference columns that exist in the specified dataset's schema
-- Only use intents from the allowed list: aggregate, distribution, trend, comparison, top_n, correlation
+- Only use intents from the allowed list: aggregate, count, distribution, trend, comparison, top_n, correlation
 - Keep insights concise (1 sentence each), grounded in the stats provided
-- Suggest charts that highlight different aspects of the data
 - For trend analysis, use datetime or ordered categorical columns for group_by
 - CRITICAL: target_fields MUST be NUMERIC columns — they are the values to aggregate/sum
 - CRITICAL: group_by MUST be CATEGORICAL or TEXT columns — they are the labels/dimensions
-- CRITICAL: NEVER put the same column in both target_fields and group_by"""
+- CRITICAL: NEVER put the same column in both target_fields and group_by
+- COUNT INTENT: Use intent="count" with target_fields=[] (empty) when counting rows. group_by is optional for "count by category" questions."""
 
 
 CHAT_CLASSIFY_PROMPT = """You are a data analyst. Given the dataset schemas and the user's question, first classify the question, then produce an analysis plan if needed.
@@ -96,10 +97,10 @@ USER QUESTION:
 
 Respond with EXACTLY this JSON structure (no markdown, no code fences):
 {{
-  "question_type": "computational" or "conversational",
+  "question_type": "computational" or "conversational" or "irrelevant",
   "plan": {{
     "source": {{ "file_name": "...", "sheet_name": "..." }},
-    "intent": "aggregate|distribution|trend|comparison|top_n|correlation",
+    "intent": "aggregate|count|distribution|trend|comparison|top_n|correlation",
     "target_fields": ["column_name"],
     "group_by": ["column_name"] or null,
     "filters": [{{"field": "...", "operator": "eq|ne|gt|lt|gte|lte|in|contains", "value": "..."}}] or null,
@@ -115,20 +116,38 @@ Respond with EXACTLY this JSON structure (no markdown, no code fences):
 }}
 
 RULES:
-- Classify as "computational" if the question requires querying data (aggregations, filtering, ranking, comparisons, trends, proportions)
-- Classify as "conversational" if the question is interpretive (explaining charts, summarizing patterns, asking "why", general advice)
+- Classify as "irrelevant" if the question is unrelated to the uploaded data (e.g., jokes, recipes, general knowledge, coding help, personal advice, weather, politics, creative writing). Set plan to null for irrelevant questions.
+- Classify as "computational" if the question requires querying data (aggregations, filtering, ranking, comparisons, trends, proportions, counts)
+- Classify as "conversational" if the question is interpretive (explaining charts, summarizing patterns, asking "why", general advice about the data)
 - If "computational", plan MUST include a valid "source" and column references from the schema
 - If "conversational", set plan to null
+- If "irrelevant", set plan to null
 - Do NOT include any answer text
-- CRITICAL: target_fields MUST be NUMERIC columns (integers or floats) — they are the values to aggregate/sum
+- CRITICAL: target_fields MUST be NUMERIC columns (integers or floats) — they are the values to aggregate/sum. EXCEPTION: for intent="count", target_fields MUST be [] (empty array) — do NOT put any column name in target_fields for count.
 - CRITICAL: group_by MUST be CATEGORICAL or TEXT columns — they are the labels/categories to slice by
 - CRITICAL: NEVER put the same column in both target_fields and group_by
 - CRITICAL: To identify which column is a region/category column, look at the sample values in the schema (e.g. a column with samples ["East","West","South"] is the region column)
-- EXAMPLE "which product sold the most": target_fields=["sales_amount"], group_by=["product_name"], intent="top_n", chart_type="bar"
-- EXAMPLE "which product has the most inventory": target_fields=["inventory_qty"], group_by=["product_name"], intent="top_n", chart_type="bar"
+- COUNT INTENT — use intent="count" with target_fields=[] when the question asks "how many X", "number of X", "count of X", or any row-counting question. Do NOT use a column name in target_fields for count.
+- EXAMPLE "how many orders": intent="count", target_fields=[], group_by=null, chart=null
+- EXAMPLE "how many orders by region": intent="count", target_fields=[], group_by=["region_col"], chart_type="bar"
+- EXAMPLE "how many orders this month": intent="count", target_fields=[], filters=[{{date filter}}], group_by=null, chart=null
+- EXAMPLE "which product sold the most": target_fields=["sales_amount"], group_by=["product_name"], intent="top_n", limit=1, chart=null (single winner, no chart)
+- EXAMPLE "top 5 products by sales": target_fields=["sales_amount"], group_by=["product_name"], intent="top_n", limit=5, chart_type="bar" (ranking list, chart helps)
+- EXAMPLE "which product has the most inventory": target_fields=["inventory_qty"], group_by=["product_name"], intent="top_n", limit=1, chart=null (single winner, no chart)
+- EXAMPLE "total revenue": target_fields=["revenue"], group_by=null, intent="aggregate", chart=null (scalar, no chart)
 - EXAMPLE "proportion/percentage/share of revenue by region": target_fields=["revenue"], group_by=["region"], intent="aggregate", chart_type="pie"
 - For proportion/percentage/share/breakdown questions, always use intent="aggregate" and chart_type="pie"
-- If a question asks "which X has the most/least Y", X goes in group_by (categorical) and Y goes in target_fields (numeric)"""
+- If a question asks "which X has the most/least Y", X goes in group_by (categorical) and Y goes in target_fields (numeric)
+- If a question uses "who" but the dataset has no person/salesperson/employee column, use the best available categorical column (e.g. product, region) but set intent accordingly so the format step can clarify the mismatch to the user
+- CHART SUPPRESSION — set chart to null when visualization adds NO value:
+  - Single-winner questions ("who sells the most", "which product has the highest revenue", "what is the top X") → set limit=1 AND chart=null; the answer is one sentence
+  - Pure scalar aggregations with no group_by ("total revenue", "average price", "how many rows", "how many orders") → chart=null; the answer is a single number
+  - Yes/no or existence questions → chart=null
+- CHART GENERATION — only include a chart spec when visualization genuinely helps:
+  - Multiple categories being compared (e.g., "sales by region", "revenue per product") → bar or pie chart
+  - Time-based trends ("sales over months", "monthly revenue") → line chart
+  - Top N where N > 1 and the question implies a ranking/list view ("top 5 products", "show me the best sellers") → bar chart
+  - Distributions or breakdowns ("proportion of sales by channel", "share by category") → pie chart"""
 
 
 CHAT_FORMAT_COMPUTATIONAL_PROMPT = """You are a data analyst assistant. The user asked a question and the system has computed the result. Write a clear, concise answer based on the actual data provided.
@@ -145,7 +164,9 @@ RULES:
 - Keep the answer to 1-4 sentences
 - Use natural language appropriate for a non-technical business user
 - If the question asks for proportions, percentages, or shares: compute the total of all values, then express each item as a percentage of the total (e.g. "East: 45%, West: 30%, South: 25%")
-- If the question asks for a ranking or top items: name the winner clearly first"""
+- If the question asks for a ranking or top items: name the winner clearly first
+- SEMANTIC MISMATCH: If the question uses "who" or implies a person/individual/salesperson but the result contains product names, region names, channel names, or other non-person entities: explicitly clarify what the result dimension actually represents. For example: "The data doesn't track individual salespeople. By product, Hammer leads with 720 units sold." Never refer to a product, region, or category as if it were a person.
+- Always look at what the result's grouping dimension actually represents (e.g. product vs. person vs. region) and make sure your answer accurately labels it"""
 
 
 CHAT_FORMAT_CONVERSATIONAL_PROMPT = """You are a data analyst assistant. The user asked an interpretive question. Answer based on the dataset context and conversation history provided.

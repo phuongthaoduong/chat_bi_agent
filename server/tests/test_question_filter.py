@@ -55,3 +55,11 @@ class TestKeywordFilter:
     ])
     def test_allows_data_questions(self, question):
         assert is_obviously_irrelevant(question) is False
+
+
+from llm.prompts import CHAT_CLASSIFY_PROMPT
+
+
+def test_classify_prompt_includes_irrelevant_type():
+    assert '"irrelevant"' in CHAT_CLASSIFY_PROMPT
+    assert "not related to the data" in CHAT_CLASSIFY_PROMPT.lower() or "unrelated" in CHAT_CLASSIFY_PROMPT.lower()
