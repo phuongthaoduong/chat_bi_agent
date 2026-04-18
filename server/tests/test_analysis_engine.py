@@ -8,6 +8,7 @@ from models.domain import (
     ChartSpec,
     DataSource,
     FilterCondition,
+    JoinSpec,
     ResultType,
     SheetData,
     SortSpec,
@@ -124,3 +125,21 @@ def test_invalid_column_raises():
     )
     with pytest.raises(ValueError, match="column"):
         engine.execute_plan(plan, _make_sales_data())
+
+
+def test_join_spec_exists():
+    j = JoinSpec(sheet_name="Purchase Orders", on="Product ID", columns=["Unit Cost (¥)"])
+    assert j.sheet_name == "Purchase Orders"
+    assert j.on == "Product ID"
+    assert j.columns == ["Unit Cost (¥)"]
+
+
+def test_analysis_plan_has_join_field():
+    plan = AnalysisPlan(
+        source=SOURCE,
+        intent=AnalysisIntent.AGGREGATE,
+        target_fields=["sales"],
+        join=JoinSpec(sheet_name="Other", on="id", columns=["cost"]),
+    )
+    assert plan.join is not None
+    assert plan.join.sheet_name == "Other"

@@ -54,7 +54,9 @@ class Message:
 
 class AnalysisIntent(Enum):
     AGGREGATE = "aggregate"
+    AVERAGE = "average"
     COUNT = "count"
+    DETAIL = "detail"
     DISTRIBUTION = "distribution"
     TREND = "trend"
     COMPARISON = "comparison"
@@ -84,6 +86,13 @@ class ChartSpec:
 
 
 @dataclass
+class JoinSpec:
+    sheet_name: str   # name of the sheet to join in
+    on: str           # column name present in BOTH sheets (join key)
+    columns: list[str]  # columns to bring in from the joined sheet
+
+
+@dataclass
 class AnalysisPlan:
     source: DataSource
     intent: AnalysisIntent
@@ -93,6 +102,8 @@ class AnalysisPlan:
     sort: SortSpec | None = None
     limit: int | None = None
     chart: ChartSpec | None = None
+    time_grain: str | None = None  # "day" | "week" | "month" | "quarter" | "year"
+    join: JoinSpec | None = None
 
 
 class ResultType(Enum):
