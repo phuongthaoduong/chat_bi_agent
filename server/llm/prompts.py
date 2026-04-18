@@ -191,7 +191,7 @@ RULES:
       target_fields=["Order ID", "Unit Price (¥)", "Unit Cost (¥)", "Salesperson"],
       filters=[{{"field": "Unit Price (¥)", "operator": "lt_col", "value": "Unit Cost (¥)"}}],
       chart=null
-  - EXAMPLE "average profit margin by product" (where cost is in Purchase Orders):
+  - EXAMPLE "what is the average selling price per product" (with cost sheet joined to see both prices):
       source={{"sheet_name": "Sales Order"}},
       join={{"sheet_name": "Purchase Orders", "on": "Product ID", "columns": ["Unit Cost (¥)"]}},
       intent="average",
