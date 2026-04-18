@@ -49,30 +49,28 @@ def test_parse_dashboard_response_valid():
     raw = json.dumps(
         {
             "insights": ["Total sales average is $250"],
-            "plans": [
-                {
-                    "source": {"file_name": "sales.csv", "sheet_name": "Sheet1"},
-                    "intent": "aggregate",
-                    "target_fields": ["sales"],
-                    "group_by": ["month"],
-                    "filters": None,
-                    "sort": None,
-                    "limit": None,
-                    "chart": {
-                        "chart_type": "bar",
-                        "title": "Monthly Sales",
-                        "x_axis": "month",
-                        "y_axis": "sales",
-                    },
-                }
-            ],
+            "plan": {
+                "source": {"file_name": "sales.csv", "sheet_name": "Sheet1"},
+                "intent": "aggregate",
+                "target_fields": ["sales"],
+                "group_by": ["month"],
+                "filters": None,
+                "sort": None,
+                "limit": None,
+                "chart": {
+                    "chart_type": "bar",
+                    "title": "Monthly Sales",
+                    "x_axis": "month",
+                    "y_axis": "sales",
+                },
+            },
         }
     )
     result = parse_dashboard_response(raw)
     assert len(result.insights) == 1
-    assert len(result.plans) == 1
-    assert result.plans[0].intent == AnalysisIntent.AGGREGATE
-    assert result.plans[0].source.file_name == "sales.csv"
+    assert result.plan is not None
+    assert result.plan.intent == AnalysisIntent.AGGREGATE
+    assert result.plan.source.file_name == "sales.csv"
 
 
 def test_parse_dashboard_response_invalid_json():
@@ -81,8 +79,9 @@ def test_parse_dashboard_response_invalid_json():
 
 
 def test_parse_dashboard_response_missing_fields():
-    with pytest.raises(ValueError):
-        parse_dashboard_response(json.dumps({"insights": []}))
+    """A plan object missing required keys (e.g. 'source') should raise KeyError."""
+    with pytest.raises(KeyError):
+        parse_dashboard_response(json.dumps({"insights": [], "plan": {"intent": "aggregate"}}))
 
 
 def test_parse_question_interpretation_with_join():

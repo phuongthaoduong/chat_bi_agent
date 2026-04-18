@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 def _parse_join(p: dict) -> JoinSpec | None:
     """Parse the optional 'join' block from a plan dict. Returns None if absent."""
     j = p.get("join")
-    if not j:
+    if j is None:
         return None
     return JoinSpec(
         sheet_name=j["sheet_name"],
