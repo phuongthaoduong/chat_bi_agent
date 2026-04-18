@@ -145,9 +145,6 @@ def test_analysis_plan_has_join_field():
     assert plan.join.sheet_name == "Other"
 
 
-PURCHASE_SOURCE = DataSource(file_name="test.csv", sheet_name="Purchase Orders")
-
-
 def _make_join_sheets() -> list[SheetData]:
     """Sales orders + a separate Purchase Orders sheet with unit cost."""
     sales_df = pd.DataFrame({

@@ -72,16 +72,15 @@ class AnalysisEngine:
             join_df = None
             for sheet in sheets:
                 if sheet.name == plan.join.sheet_name:
-                    join_df = sheet.df
+                    join_df = sheet.df.copy()
                     break
             if join_df is None:
                 raise ValueError(f"Join sheet not found: {plan.join.sheet_name}")
 
-            # Normalize join key against both dfs
+            # Normalize in place (plan objects are consumed by execute_plan; callers must not re-use them)
             plan.join.on = self._remap_col(
                 self._remap_col(plan.join.on, df), join_df
             )
-            # Normalize join columns against the join sheet
             plan.join.columns = [self._remap_col(c, join_df) for c in plan.join.columns]
 
             # Build list of columns to pull from join sheet (key + requested columns, deduplicated)
