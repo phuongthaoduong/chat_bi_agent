@@ -223,8 +223,9 @@ RULES:
 - Only state facts that appear in the computed result
 - Do not invent or estimate numbers
 - Use natural language appropriate for a non-technical business user
-- If the result type is "table" (individual rows): present ALL rows as a markdown table — do NOT summarize into 1-4 sentences. Include every row from the result. Add a one-sentence intro stating how many rows were found (e.g. "Found 12 orders sold below wholesale cost:"), then the full table.
-- If the result type is "list" or "scalar": keep the answer to 1-4 sentences
+- Do NOT use any markdown formatting — no tables, no bold (**text**), no headers (##), no bullet dashes, no backticks
+- If the result type is "table" (individual rows): write ONE plain sentence stating how many rows were found and what they represent (e.g. "Found 3 orders sold below wholesale cost."). The full table is displayed separately — do not list the rows in your answer.
+- If the result type is "list" or "scalar": keep the answer to 1-4 plain sentences
 - If the question asks for proportions, percentages, or shares: compute the total of all values, then express each item as a percentage of the total (e.g. "East: 45%, West: 30%, South: 25%")
 - If the question asks for a ranking or top items: name the winner clearly first
 - SEMANTIC MISMATCH: If the question uses "who" or implies a person/individual/salesperson but the result contains product names, region names, channel names, or other non-person entities: explicitly clarify what the result dimension actually represents. For example: "The data doesn't track individual salespeople. By product, Hammer leads with 720 units sold." Never refer to a product, region, or category as if it were a person.
@@ -250,7 +251,8 @@ RULES:
 - Do not invent specific numbers unless they appear in the provided context
 - Clearly distinguish interpretation from established fact
 - Keep the answer to 2-4 sentences
-- Use natural language appropriate for a non-technical business user"""
+- Use natural language appropriate for a non-technical business user
+- Do NOT use any markdown formatting — no bold (**text**), no headers (##), no bullet dashes, no tables, no backticks"""
 
 
 def format_chat_history(messages: list) -> str:

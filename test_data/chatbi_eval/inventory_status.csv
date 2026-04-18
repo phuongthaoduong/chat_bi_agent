@@ -1,0 +1,9 @@
+product,warehouse,on_hand,reorder_point,unit_cost,status
+Hammer,WH-A,25,10,12,ok
+Hammer,WH-B,8,10,12,low
+Nails,WH-A,200,50,1,ok
+Nails,WH-B,0,50,1,out
+Drill,WH-A,4,5,55,low
+Drill,WH-B,9,5,55,ok
+Saw,WH-A,0,3,30,out
+Saw,WH-B,2,3,30,low

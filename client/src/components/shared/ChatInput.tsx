@@ -25,38 +25,34 @@ export function ChatInput({ onSend, isLoading, placeholder }: ChatInputProps) {
   };
 
   return (
-    <div style={{ display: "flex", gap: "8px", padding: "16px 24px", borderTop: "1px solid #e5e7eb" }}>
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder={placeholder || "Ask a question about your data..."}
-        disabled={isLoading}
-        style={{
-          flex: 1,
-          padding: "10px 16px",
-          border: "1px solid #d1d5db",
-          borderRadius: "8px",
-          fontSize: "14px",
-          outline: "none",
-        }}
-      />
-      <button
-        onClick={handleSend}
-        disabled={isLoading || !value.trim()}
-        style={{
-          padding: "10px 20px",
-          backgroundColor: isLoading ? "#9ca3af" : "#4f46e5",
-          color: "white",
-          border: "none",
-          borderRadius: "8px",
-          cursor: isLoading ? "wait" : "pointer",
-          fontSize: "14px",
-        }}
-      >
-        {isLoading ? "..." : "Send"}
-      </button>
+    <div className="chat-input-bar">
+      <div className="chat-input-inner">
+        <input
+          className="chat-input-field"
+          type="text"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder ?? "Ask a question about your data…"}
+          disabled={isLoading}
+          autoFocus
+        />
+        <button
+          className="chat-send-btn"
+          onClick={handleSend}
+          disabled={isLoading || !value.trim()}
+        >
+          {isLoading ? (
+            <div className="loading-dots" style={{ margin: 0, gap: 4 }}>
+              <div className="loading-dot" style={{ width: 5, height: 5, background: "var(--text-3)" }} />
+              <div className="loading-dot" style={{ width: 5, height: 5, background: "var(--text-3)" }} />
+              <div className="loading-dot" style={{ width: 5, height: 5, background: "var(--text-3)" }} />
+            </div>
+          ) : (
+            "Send →"
+          )}
+        </button>
+      </div>
     </div>
   );
 }

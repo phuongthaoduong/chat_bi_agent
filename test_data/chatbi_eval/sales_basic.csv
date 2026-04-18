@@ -1,0 +1,13 @@
+date,region,product,channel,units,unit_price,revenue
+2026-03-01,East,Hammer,Store,10,20,200
+2026-03-01,East,Nails,Store,50,2,100
+2026-03-02,West,Hammer,Online,8,20,160
+2026-03-02,West,Drill,Store,3,80,240
+2026-03-03,East,Drill,Online,2,80,160
+2026-03-03,South,Hammer,Store,5,20,100
+2026-03-04,South,Nails,Online,100,2,200
+2026-03-04,East,Hammer,Store,7,20,140
+2026-03-05,West,Nails,Store,60,2,120
+2026-03-05,South,Drill,Online,1,80,80
+2026-03-06,East,Nails,Online,40,2,80
+2026-03-06,West,Hammer,Store,6,20,120

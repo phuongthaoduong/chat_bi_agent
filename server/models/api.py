@@ -41,7 +41,16 @@ class UploadResponse(BaseModel):
     profiles: list[SheetProfileResponse]
     warnings: list[str]
     insights: list[str] = []
-    charts: list[ChartDataResponse] = []
+    chart: ChartDataResponse | None = None
+
+
+class AddFilesResponse(BaseModel):
+    files: list[FileInfo]
+    profiles: list[SheetProfileResponse]
+    chart: ChartDataResponse | None = None
+    insights: list[str] = []
+    warnings: list[str]
+    replaced: list[str] = []   # filenames that overwrote an existing source
 
 
 class ChatRequest(BaseModel):
@@ -49,9 +58,15 @@ class ChatRequest(BaseModel):
     question: str
 
 
+class TableDataResponse(BaseModel):
+    columns: list[str]
+    rows: list[list]
+
+
 class ChatResponse(BaseModel):
     answer: str
     chart: ChartDataResponse | None = None
+    table: TableDataResponse | None = None
     total_rows: int | None = None
     displayed_rows: int | None = None
 

@@ -21,6 +21,7 @@ from models.api import (
     ErrorResponse,
     FileInfo,
     SheetProfileResponse,
+    TableDataResponse,
     UploadResponse,
 )
 from models.domain import DataSource, Message, ParsedFile, QuestionInterpretation, QuestionType, ResultType, SessionData
@@ -345,7 +346,14 @@ async def chat(request: ChatRequest):
                         plan_error=plan_error_with_cols,
                     )
                     if interpretation.question_type == QuestionType.COMPUTATIONAL and interpretation.plan:
-                        result = analysis_engine.execute_plan(interpretation.plan, target_sheets)
+                        try:
+                            result = analysis_engine.execute_plan(interpretation.plan, target_sheets)
+                        except ValueError as retry_err:
+                            # Retry also failed (e.g. required column doesn't exist in the data)
+                            # Fall back to conversational so the LLM can explain the data limitation
+                            logger.warning("Retry plan also failed (%s), falling back to conversational", retry_err)
+                            interpretation = QuestionInterpretation(question_type=QuestionType.CONVERSATIONAL, plan=None)
+                            result = None
                     else:
                         result = None
 
@@ -377,6 +385,13 @@ async def chat(request: ChatRequest):
                             y_axis=result.chart_data.y_axis,
                         )
 
+                    table_response = None
+                    if result.result_type == ResultType.TABULAR:
+                        table_response = TableDataResponse(
+                            columns=result.data.columns,
+                            rows=result.data.rows,
+                        )
+
                     session.chat_history.append(
                         Message(
                             role="assistant",
@@ -385,7 +400,7 @@ async def chat(request: ChatRequest):
                         )
                     )
                     session_store.update(request.session_id, session)
-                    return ChatResponse(answer=answer, chart=chart_response, total_rows=total_rows, displayed_rows=displayed_rows)
+                    return ChatResponse(answer=answer, chart=chart_response, table=table_response, total_rows=total_rows, displayed_rows=displayed_rows)
 
         answer = client.format_answer(
             question=request.question,

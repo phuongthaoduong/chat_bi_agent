@@ -1,0 +1,7 @@
+customer,invoice_id,invoice_date,due_date,amount,status,days_overdue
+Alpha Store,INV-1001,2026-02-01,2026-03-01,1200,overdue,20
+Bravo Tools,INV-1002,2026-02-10,2026-03-10,800,paid,0
+Central Supply,INV-1003,2026-01-15,2026-02-15,2300,overdue,34
+Delta Retail,INV-1004,2026-03-01,2026-03-31,950,open,0
+Evergreen Mart,INV-1005,2026-01-20,2026-02-20,1500,overdue,29
+Frontier Shop,INV-1006,2026-02-05,2026-03-05,400,overdue,16

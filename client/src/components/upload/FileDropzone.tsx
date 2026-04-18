@@ -29,46 +29,42 @@ export function FileDropzone({ onFilesSelected, isLoading, error }: FileDropzone
 
   return (
     <div
+      className={[
+        "dropzone",
+        isDragOver ? "dropzone--hover" : "",
+        isLoading ? "dropzone--loading" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
       onDrop={handleDrop}
-      onDragOver={(e) => {
-        e.preventDefault();
-        setIsDragOver(true);
-      }}
+      onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
       onDragLeave={() => setIsDragOver(false)}
-      style={{
-        border: `2px dashed ${isDragOver ? "#4f46e5" : "#d1d5db"}`,
-        borderRadius: "12px",
-        padding: "48px",
-        textAlign: "center",
-        cursor: isLoading ? "wait" : "pointer",
-        backgroundColor: isDragOver ? "#eef2ff" : "#fafafa",
-        transition: "all 0.2s",
-      }}
     >
       {isLoading ? (
-        <div>
-          <div
-            style={{
-              width: "40px",
-              height: "40px",
-              border: "3px solid #e5e7eb",
-              borderTopColor: "#4f46e5",
-              borderRadius: "50%",
-              animation: "spin 1s linear infinite",
-              margin: "0 auto 12px",
-            }}
-          />
-          <p style={{ fontSize: "16px", marginBottom: "4px" }}>Uploading and analyzing your data...</p>
-          <p style={{ fontSize: "14px", color: "#6b7280" }}>This may take a few seconds</p>
-        </div>
+        <>
+          <div className="loading-dots">
+            <div className="loading-dot" />
+            <div className="loading-dot" />
+            <div className="loading-dot" />
+          </div>
+          <p className="loading-label">Analysing your data…</p>
+          <p className="loading-sublabel">Building dashboard with AI</p>
+        </>
       ) : (
         <>
-          <p style={{ fontSize: "18px", marginBottom: "8px" }}>
-            Drop files here or click to upload
-          </p>
-          <p style={{ color: "#6b7280", fontSize: "14px" }}>
-            Supports .csv, .xlsx, .xls (max 5MB)
-          </p>
+          <svg
+            className="dropzone-icon"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+          </svg>
+          <p className="dropzone-title">Drop files here or click to upload</p>
+          <p className="dropzone-hint">.csv · .xlsx · .xls · max 5 MB</p>
           <input
             type="file"
             multiple
@@ -77,25 +73,12 @@ export function FileDropzone({ onFilesSelected, isLoading, error }: FileDropzone
             style={{ display: "none" }}
             id="file-input"
           />
-          <label
-            htmlFor="file-input"
-            style={{
-              display: "inline-block",
-              marginTop: "16px",
-              padding: "8px 24px",
-              backgroundColor: "#4f46e5",
-              color: "white",
-              borderRadius: "6px",
-              cursor: "pointer",
-            }}
-          >
+          <label htmlFor="file-input" className="dropzone-btn">
             Choose Files
           </label>
         </>
       )}
-      {error && (
-        <p style={{ color: "#dc2626", marginTop: "12px" }}>{error}</p>
-      )}
+      {error && <p className="dropzone-error">{error}</p>}
     </div>
   );
 }

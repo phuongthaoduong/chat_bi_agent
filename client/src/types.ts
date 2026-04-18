@@ -43,12 +43,18 @@ export interface UploadResponse {
   profiles: SheetProfile[];
   warnings: string[];
   insights: string[];
-  charts: ChartData[];
+  chart: ChartData | null;
+}
+
+export interface TableData {
+  columns: string[];
+  rows: unknown[][];
 }
 
 export interface ChatResponse {
   answer: string;
   chart: ChartData | null;
+  table: TableData | null;
   total_rows?: number | null;
   displayed_rows?: number | null;
 }
@@ -57,8 +63,18 @@ export interface Message {
   role: "user" | "assistant";
   content: string;
   chart?: ChartData | null;
+  table?: TableData | null;
   totalRows?: number | null;
   displayedRows?: number | null;
+}
+
+export interface AddFilesResponse {
+  files: FileInfo[];
+  profiles: SheetProfile[];
+  chart: ChartData | null;
+  insights: string[];
+  warnings: string[];
+  replaced: string[];
 }
 
 export interface ErrorResponse {

@@ -25,26 +25,20 @@ export function UploadScreen({ onUploadComplete }: UploadScreenProps) {
   };
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        minHeight: "100vh",
-        padding: "24px",
-      }}
-    >
-      <h1 style={{ fontSize: "32px", marginBottom: "8px" }}>ChatBI</h1>
-      <p style={{ color: "#6b7280", marginBottom: "32px" }}>
-        Upload your data files to get started
-      </p>
-      <div style={{ width: "100%", maxWidth: "500px" }}>
-        <FileDropzone
-          onFilesSelected={handleFilesSelected}
-          isLoading={isLoading}
-          error={error}
-        />
+    <div className="upload-screen">
+      <div className="upload-glow" />
+      <div className="upload-content">
+        <div className="upload-wordmark">
+          Chat<em>BI</em>
+        </div>
+        <p className="upload-tagline">Query your data in plain English.</p>
+        <div className="upload-zone-wrap">
+          <FileDropzone
+            onFilesSelected={handleFilesSelected}
+            isLoading={isLoading}
+            error={error}
+          />
+        </div>
       </div>
     </div>
   );
