@@ -21,6 +21,7 @@ from models.domain import (
     DashboardSuggestion,
     DataSource,
     FilterCondition,
+    JoinSpec,
     Message,
     QuestionInterpretation,
     QuestionType,
@@ -29,6 +30,18 @@ from models.domain import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_join(p: dict) -> JoinSpec | None:
+    """Parse the optional 'join' block from a plan dict. Returns None if absent."""
+    j = p.get("join")
+    if not j:
+        return None
+    return JoinSpec(
+        sheet_name=j["sheet_name"],
+        on=j["on"],
+        columns=j.get("columns") or [],
+    )
 
 
 def parse_dashboard_response(raw: str) -> DashboardSuggestion:
@@ -44,11 +57,9 @@ def parse_dashboard_response(raw: str) -> DashboardSuggestion:
     except json.JSONDecodeError as e:
         raise ValueError(f"Invalid JSON from LLM: {e}")
 
-    if "plans" not in data:
-        raise ValueError("Missing 'plans' in LLM response")
-
-    plans = []
-    for p in data["plans"]:
+    plan = None
+    p = data.get("plan")
+    if p:
         source = DataSource(
             file_name=p["source"]["file_name"],
             sheet_name=p["source"]["sheet_name"],
@@ -62,7 +73,6 @@ def parse_dashboard_response(raw: str) -> DashboardSuggestion:
         sort = None
         if p.get("sort"):
             sort = SortSpec(field=p["sort"]["field"], direction=p["sort"]["direction"])
-
         chart = None
         if p.get("chart"):
             chart = ChartSpec(
@@ -71,23 +81,22 @@ def parse_dashboard_response(raw: str) -> DashboardSuggestion:
                 x_axis=p["chart"].get("x_axis"),
                 y_axis=p["chart"].get("y_axis"),
             )
-
-        plans.append(
-            AnalysisPlan(
-                source=source,
-                intent=AnalysisIntent(p["intent"]),
-                target_fields=p["target_fields"],
-                group_by=p.get("group_by"),
-                filters=filters,
-                sort=sort,
-                limit=p.get("limit"),
-                chart=chart,
-            )
+        plan = AnalysisPlan(
+            source=source,
+            intent=AnalysisIntent(p["intent"]),
+            target_fields=p["target_fields"],
+            group_by=p.get("group_by"),
+            filters=filters,
+            sort=sort,
+            limit=p.get("limit"),
+            chart=chart,
+            time_grain=p.get("time_grain"),
+            join=_parse_join(p),
         )
 
     return DashboardSuggestion(
         insights=data.get("insights", []),
-        plans=plans,
+        plan=plan,
     )
 
 
@@ -139,6 +148,8 @@ def parse_question_interpretation(raw: str) -> QuestionInterpretation:
             sort=sort,
             limit=p.get("limit"),
             chart=chart,
+            time_grain=p.get("time_grain"),
+            join=_parse_join(p),
         )
 
     return QuestionInterpretation(question_type=question_type, plan=plan)
@@ -214,8 +225,11 @@ class LLMClient:
                 "role": "user",
                 "content": (
                     f"Your previous plan failed with this error: {plan_error}\n"
-                    "Please fix the plan. Remember: target_fields must be NUMERIC columns, "
-                    "group_by must be CATEGORICAL/TEXT columns, and they must not overlap."
+                    "Please fix the plan. Rules: "
+                    "(1) For 'how many' / count questions use intent='count' with target_fields=[]. "
+                    "(2) target_fields must be NUMERIC columns for all other intents. "
+                    "(3) group_by must be CATEGORICAL/TEXT columns. "
+                    "(4) Use the EXACT column names listed in the schema — copy them character-for-character."
                 ),
             })
 

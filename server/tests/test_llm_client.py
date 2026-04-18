@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from llm.client import parse_dashboard_response
-from models.domain import AnalysisIntent, ColumnProfile, DataSource, SheetProfile
+from llm.client import parse_dashboard_response, parse_question_interpretation
+from models.domain import AnalysisIntent, ColumnProfile, DataSource, JoinSpec, SheetProfile
 
 
 def _make_profile() -> list[SheetProfile]:
@@ -83,3 +83,52 @@ def test_parse_dashboard_response_invalid_json():
 def test_parse_dashboard_response_missing_fields():
     with pytest.raises(ValueError):
         parse_dashboard_response(json.dumps({"insights": []}))
+
+
+def test_parse_question_interpretation_with_join():
+    raw = json.dumps({
+        "question_type": "computational",
+        "plan": {
+            "source": {"file_name": "data.xlsx", "sheet_name": "Sales Order"},
+            "join": {
+                "sheet_name": "Purchase Orders",
+                "on": "Product ID",
+                "columns": ["Unit Cost (¥)"]
+            },
+            "intent": "detail",
+            "target_fields": ["Order ID", "Unit Price (¥)", "Unit Cost (¥)", "Salesperson"],
+            "group_by": None,
+            "filters": [
+                {"field": "Unit Price (¥)", "operator": "lt_col", "value": "Unit Cost (¥)"}
+            ],
+            "sort": None,
+            "limit": None,
+            "chart": None,
+        }
+    })
+    result = parse_question_interpretation(raw)
+    assert result.plan is not None
+    assert result.plan.join is not None
+    assert result.plan.join.sheet_name == "Purchase Orders"
+    assert result.plan.join.on == "Product ID"
+    assert result.plan.join.columns == ["Unit Cost (¥)"]
+
+
+def test_parse_question_interpretation_without_join():
+    """Existing plans without join field should parse cleanly with join=None."""
+    raw = json.dumps({
+        "question_type": "computational",
+        "plan": {
+            "source": {"file_name": "sales.csv", "sheet_name": "Sheet1"},
+            "intent": "aggregate",
+            "target_fields": ["sales"],
+            "group_by": ["month"],
+            "filters": None,
+            "sort": None,
+            "limit": None,
+            "chart": None,
+        }
+    })
+    result = parse_question_interpretation(raw)
+    assert result.plan is not None
+    assert result.plan.join is None
