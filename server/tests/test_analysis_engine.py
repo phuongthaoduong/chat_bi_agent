@@ -143,3 +143,92 @@ def test_analysis_plan_has_join_field():
     )
     assert plan.join is not None
     assert plan.join.sheet_name == "Other"
+
+
+PURCHASE_SOURCE = DataSource(file_name="test.csv", sheet_name="Purchase Orders")
+
+
+def _make_join_sheets() -> list[SheetData]:
+    """Sales orders + a separate Purchase Orders sheet with unit cost."""
+    sales_df = pd.DataFrame({
+        "Order ID": ["ORD-001", "ORD-002", "ORD-003"],
+        "Product ID": ["P1", "P2", "P1"],
+        "Unit Price (¥)": [100, 50, 80],
+        "Salesperson": ["Alice", "Bob", "Alice"],
+    })
+    cost_df = pd.DataFrame({
+        "Product ID": ["P1", "P2"],
+        "Unit Cost (¥)": [90, 60],
+    })
+    return [
+        SheetData(name="Sales Order", df=sales_df),
+        SheetData(name="Purchase Orders", df=cost_df),
+    ]
+
+
+def test_join_brings_in_cost_column():
+    """After join, merged df should contain Unit Cost (¥)."""
+    engine = AnalysisEngine()
+    plan = AnalysisPlan(
+        source=DataSource(file_name="test.csv", sheet_name="Sales Order"),
+        intent=AnalysisIntent.DETAIL,
+        target_fields=["Order ID", "Unit Price (¥)", "Unit Cost (¥)", "Salesperson"],
+        join=JoinSpec(
+            sheet_name="Purchase Orders",
+            on="Product ID",
+            columns=["Unit Cost (¥)"],
+        ),
+    )
+    result = engine.execute_plan(plan, _make_join_sheets())
+    assert result.result_type == ResultType.TABULAR
+    assert "Unit Cost (¥)" in result.data.columns
+
+
+def test_join_filter_below_cost():
+    """Orders where Unit Price < Unit Cost should be ORD-002 only."""
+    engine = AnalysisEngine()
+    plan = AnalysisPlan(
+        source=DataSource(file_name="test.csv", sheet_name="Sales Order"),
+        intent=AnalysisIntent.DETAIL,
+        target_fields=["Order ID", "Unit Price (¥)", "Unit Cost (¥)", "Salesperson"],
+        filters=[FilterCondition(field="Unit Price (¥)", operator="lt_col", value="Unit Cost (¥)")],
+        join=JoinSpec(
+            sheet_name="Purchase Orders",
+            on="Product ID",
+            columns=["Unit Cost (¥)"],
+        ),
+    )
+    result = engine.execute_plan(plan, _make_join_sheets())
+    assert result.result_type == ResultType.TABULAR
+    order_ids = [row[result.data.columns.index("Order ID")] for row in result.data.rows]
+    assert order_ids == ["ORD-002", "ORD-003"]
+
+
+def test_join_missing_sheet_raises():
+    """Referencing a non-existent join sheet should raise ValueError."""
+    engine = AnalysisEngine()
+    plan = AnalysisPlan(
+        source=DataSource(file_name="test.csv", sheet_name="Sales Order"),
+        intent=AnalysisIntent.DETAIL,
+        target_fields=[],
+        join=JoinSpec(sheet_name="Nonexistent", on="Product ID", columns=["cost"]),
+    )
+    with pytest.raises(ValueError, match="Join sheet not found"):
+        engine.execute_plan(plan, _make_join_sheets())
+
+
+def test_join_key_fuzzy_match():
+    """Join key 'product_id' in plan should match 'Product ID' column in both sheets."""
+    engine = AnalysisEngine()
+    plan = AnalysisPlan(
+        source=DataSource(file_name="test.csv", sheet_name="Sales Order"),
+        intent=AnalysisIntent.DETAIL,
+        target_fields=[],
+        join=JoinSpec(
+            sheet_name="Purchase Orders",
+            on="product_id",   # <- lowercase/underscore variant
+            columns=["unit_cost_(¥)"],  # <- also fuzzy
+        ),
+    )
+    result = engine.execute_plan(plan, _make_join_sheets())
+    assert "Unit Cost (¥)" in result.data.columns
