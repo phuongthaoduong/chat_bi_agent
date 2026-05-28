@@ -15,7 +15,7 @@ def build_dataset_inventory(profiles: list[SheetProfile]) -> str:
 def build_profile_detail(profiles: list[SheetProfile]) -> str:
     sections = []
     for p in profiles:
-        numeric_cols = [c.name for c in p.columns if c.dtype in ("integer", "float")]
+        numeric_cols = [c.name for c in p.columns if c.dtype in ("numeric", "integer", "float")]
         categorical_cols = [c.name for c in p.columns if c.dtype in ("categorical", "text")]
         datetime_cols = [c.name for c in p.columns if c.dtype == "datetime"]
         cols = []

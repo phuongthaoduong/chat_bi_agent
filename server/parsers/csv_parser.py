@@ -12,8 +12,12 @@ class CsvParser(BaseParser):
             raise ValueError(f"File is empty: {filename}")
         encoding = chardet.detect(raw)["encoding"] or "utf-8"
         text = raw.decode(encoding)
-        dialect = csv.Sniffer().sniff(text[:8192])
-        df = pd.read_csv(StringIO(text), sep=dialect.delimiter)
+        try:
+            dialect = csv.Sniffer().sniff(text[:8192])
+            sep = dialect.delimiter
+        except csv.Error:
+            sep = ","
+        df = pd.read_csv(StringIO(text), sep=sep)
         if df.empty:
             raise ValueError(f"File is empty: {filename}")
         sheet = SheetData(name="Sheet1", df=df)

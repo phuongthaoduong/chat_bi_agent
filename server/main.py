@@ -354,8 +354,18 @@ async def chat(request: ChatRequest):
                             logger.warning("Retry plan also failed (%s), falling back to conversational", retry_err)
                             interpretation = QuestionInterpretation(question_type=QuestionType.CONVERSATIONAL, plan=None)
                             result = None
+                        except Exception as retry_err:
+                            logger.warning("Unexpected analysis error on retry (%s), falling back to conversational", retry_err)
+                            interpretation = QuestionInterpretation(question_type=QuestionType.CONVERSATIONAL, plan=None)
+                            result = None
                     else:
                         result = None
+                except Exception as plan_err:
+                    # Unexpected engine error (e.g. pandas KeyError, TypeError) — not a bad LLM
+                    # plan, so don't retry; fall back to conversational instead of surfacing 502.
+                    logger.warning("Unexpected analysis error (%s), falling back to conversational", plan_err)
+                    interpretation = QuestionInterpretation(question_type=QuestionType.CONVERSATIONAL, plan=None)
+                    result = None
 
                 if interpretation.question_type == QuestionType.COMPUTATIONAL and interpretation.plan and result:
                     # Apply display cap for tabular results

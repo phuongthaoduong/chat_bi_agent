@@ -78,21 +78,28 @@ class AnalysisEngine:
                 raise ValueError(f"Join sheet not found: {plan.join.sheet_name}")
 
             # Normalize in place (plan objects are consumed by execute_plan; callers must not re-use them)
-            plan.join.on = self._remap_col(
-                self._remap_col(plan.join.on, df), join_df
-            )
+            # Remap the join key independently for each side so that different case/spacing
+            # variants (e.g. "Product ID" vs "ProductID") are handled correctly.
+            df_on = self._remap_col(plan.join.on, df)
+            join_on = self._remap_col(plan.join.on, join_df)
+            plan.join.on = join_on
             plan.join.columns = [self._remap_col(c, join_df) for c in plan.join.columns]
 
             # Build list of columns to pull from join sheet (key + requested columns, deduplicated)
-            pull_cols = [plan.join.on] + [c for c in plan.join.columns if c != plan.join.on]
+            pull_cols = [join_on] + [c for c in plan.join.columns if c != join_on]
             pull_cols = [c for c in pull_cols if c in join_df.columns]
 
-            # Left-merge; drop_duplicates on key to avoid row multiplication
+            # Left-merge; drop_duplicates on key to avoid row multiplication.
+            # Use left_on/right_on so the merge works even when the key has a different
+            # name in each sheet; drop the redundant right-side key column afterwards.
             df = df.merge(
-                join_df[pull_cols].drop_duplicates(subset=[plan.join.on]),
-                on=plan.join.on,
+                join_df[pull_cols].drop_duplicates(subset=[join_on]),
+                left_on=df_on,
+                right_on=join_on,
                 how="left",
             )
+            if df_on != join_on and join_on in df.columns:
+                df = df.drop(columns=[join_on])
 
         self._normalize_plan_columns(df, plan)
         self._validate_columns(df, plan)
@@ -133,7 +140,7 @@ class AnalysisEngine:
         if plan.intent == AnalysisIntent.COUNT:
             plan.target_fields = [f for f in plan.target_fields if not _is_count_alias(f)]
             if plan.sort and _is_count_alias(plan.sort.field):
-                plan.sort = None  # _count always sorts by _count desc by default
+                plan.sort.field = "_count"  # normalize to derived column; preserve direction
 
         plan.target_fields = [self._remap_col(f, df) for f in plan.target_fields]
         if plan.group_by:
@@ -316,7 +323,6 @@ class AnalysisEngine:
             grouped = df.groupby(group_col)[target].sum().reset_index()
         else:
             grouped = df[[target]].copy()
-            grouped[group_col] = grouped[target].astype(str)
 
         sort_dir = plan.sort.direction if plan.sort else "desc"
         grouped = grouped.sort_values(target, ascending=(sort_dir == "asc"))
