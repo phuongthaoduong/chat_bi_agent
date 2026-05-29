@@ -1,5 +1,6 @@
 import json
 import logging
+from datetime import date
 
 from openai import OpenAI
 
@@ -212,6 +213,7 @@ class LLMClient:
         history = format_chat_history(chat_history)
 
         prompt = CHAT_CLASSIFY_PROMPT.format(
+            today=date.today().isoformat(),
             dataset_inventory=inventory,
             profile_detail=detail,
             chat_history=history,

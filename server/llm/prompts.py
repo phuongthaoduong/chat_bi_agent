@@ -93,6 +93,8 @@ RULES:
 
 CHAT_CLASSIFY_PROMPT = """You are a data analyst. Given the dataset schemas and the user's question, first classify the question, then produce an analysis plan if needed.
 
+TODAY'S DATE: {today}
+
 AVAILABLE DATASETS:
 {dataset_inventory}
 
@@ -107,7 +109,7 @@ USER QUESTION:
 
 Respond with EXACTLY this JSON structure (no markdown, no code fences):
 {{
-  "question_type": "computational" or "conversational" or "irrelevant",
+  "question_type": "computational" or "conversational",
   "plan": {{
     "source": {{ "file_name": "...", "sheet_name": "..." }},
     "join": {{
@@ -134,10 +136,8 @@ Respond with EXACTLY this JSON structure (no markdown, no code fences):
 RULES:
 - Classify as "computational" if the question requires querying data (aggregations, filtering, ranking, comparisons, trends, proportions, counts)
 - Classify as "conversational" if the question is interpretive (explaining charts, summarizing patterns, asking "why", general advice about the data)
-- Classify as "irrelevant" ONLY if the question is completely unrelated to data analysis or the uploaded datasets (e.g., jokes, recipes, general knowledge, coding help, personal advice, weather, politics, creative writing). When in doubt, classify as "computational" or "conversational" — never classify a question as "irrelevant" if it could plausibly relate to the uploaded data.
 - If "computational", plan MUST include a valid "source" and column references from the schema
 - If "conversational", set plan to null
-- If "irrelevant", set plan to null
 - Do NOT include any answer text
 - CRITICAL: target_fields MUST be NUMERIC columns (integers or floats) — they are the values to aggregate/sum. EXCEPTION: for intent="count", target_fields MUST be [] (empty array). EXCEPTION: for intent="detail", target_fields is the list of columns to DISPLAY (any type), or [] to show all columns.
 - CRITICAL: NEVER use "count" as a column name in target_fields — "count" is a derived aggregation result, not a column. Use intent="count" with target_fields=[] instead.
@@ -229,7 +229,8 @@ RULES:
 - If the question asks for proportions, percentages, or shares: compute the total of all values, then express each item as a percentage of the total (e.g. "East: 45%, West: 30%, South: 25%")
 - If the question asks for a ranking or top items: name the winner clearly first
 - SEMANTIC MISMATCH: If the question uses "who" or implies a person/individual/salesperson but the result contains product names, region names, channel names, or other non-person entities: explicitly clarify what the result dimension actually represents. For example: "The data doesn't track individual salespeople. By product, Hammer leads with 720 units sold." Never refer to a product, region, or category as if it were a person.
-- Always look at what the result's grouping dimension actually represents (e.g. product vs. person vs. region) and make sure your answer accurately labels it"""
+- Always look at what the result's grouping dimension actually represents (e.g. product vs. person vs. region) and make sure your answer accurately labels it
+- EMPTY RESULT: If the result is an empty list or has zero rows, do NOT say "no products were identified" or similar vague phrases. Instead say clearly: "No data found for [the requested time period]." Use the same language as the user's question."""
 
 
 CHAT_FORMAT_CONVERSATIONAL_PROMPT = """You are a data analyst assistant. The user asked an interpretive question. Answer based on the dataset context and conversation history provided.

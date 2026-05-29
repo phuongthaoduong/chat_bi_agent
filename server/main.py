@@ -1,6 +1,9 @@
 import asyncio
+import dataclasses
 import logging
 import uuid
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
 from contextlib import asynccontextmanager
 from io import BytesIO
 
@@ -289,32 +292,21 @@ async def chat(request: ChatRequest):
             ).model_dump(),
         )
 
-    # --- Layer 1: zero-cost keyword heuristic ---
-    if is_obviously_irrelevant(request.question):
-        rejection = IRRELEVANT_REJECTION_MESSAGE
-        session.chat_history.append(Message(role="user", content=request.question))
-        session.chat_history.append(Message(role="assistant", content=rejection))
-        session_store.update(request.session_id, session)
-        return ChatResponse(answer=rejection)
-
+    logger.info("=== [STEP 1] Keyword filter: question=%r", request.question)
     session.chat_history.append(Message(role="user", content=request.question))
 
     try:
+        logger.info("=== [STEP 2] Calling LLM to classify question...")
         interpretation = client.interpret_question(
             question=request.question,
             profiles=session.profiles,
             chat_history=session.chat_history,
         )
-
-        # --- Layer 2: LLM classified as irrelevant ---
-        if interpretation.question_type == QuestionType.IRRELEVANT:
-            rejection = IRRELEVANT_REJECTION_MESSAGE
-            session.chat_history.append(Message(role="assistant", content=rejection))
-            session_store.update(request.session_id, session)
-            return ChatResponse(answer=rejection)
+        logger.info("=== [STEP 2] LLM classified as: %s", interpretation.question_type.value)
 
         chart_response = None
         if interpretation.question_type == QuestionType.COMPUTATIONAL and interpretation.plan:
+            logger.info("=== [STEP 3] Plan: %s", dataclasses.asdict(interpretation.plan))
             target_sheets = []
             for pf in session.files:
                 if pf.name == interpretation.plan.source.file_name:
@@ -323,14 +315,16 @@ async def chat(request: ChatRequest):
 
             if not target_sheets:
                 # Source not found — fall back to conversational answer
+                logger.warning("=== [STEP 3] Source file not found, falling back to conversational")
                 interpretation = QuestionInterpretation(question_type=QuestionType.CONVERSATIONAL, plan=None)
             else:
                 try:
-                    import dataclasses; logger.info("Executing plan: %s", dataclasses.asdict(interpretation.plan))
+                    logger.info("=== [STEP 3] Executing plan against data...")
                     result = analysis_engine.execute_plan(interpretation.plan, target_sheets)
+                    logger.info("=== [STEP 3] Result type: %s, data: %s", result.result_type.value, dataclasses.asdict(result.data))
                 except ValueError as plan_err:
                     # Bad plan — retry LLM once with the error as feedback
-                    logger.warning("Bad analysis plan (%s), retrying classify...", plan_err)
+                    logger.warning("=== [STEP 3] Bad plan (%s), retrying LLM...", plan_err)
                     # Build column list for retry context
                     valid_cols = []
                     for p in session.profiles:
@@ -346,17 +340,20 @@ async def chat(request: ChatRequest):
                         chat_history=session.chat_history,
                         plan_error=plan_error_with_cols,
                     )
+                    logger.info("=== [STEP 3] Retry classified as: %s", interpretation.question_type.value)
                     if interpretation.question_type == QuestionType.COMPUTATIONAL and interpretation.plan:
+                        logger.info("=== [STEP 3] Retry plan: %s", dataclasses.asdict(interpretation.plan))
                         try:
                             result = analysis_engine.execute_plan(interpretation.plan, target_sheets)
+                            logger.info("=== [STEP 3] Retry result: %s", dataclasses.asdict(result.data))
                         except ValueError as retry_err:
                             # Retry also failed (e.g. required column doesn't exist in the data)
                             # Fall back to conversational so the LLM can explain the data limitation
-                            logger.warning("Retry plan also failed (%s), falling back to conversational", retry_err)
+                            logger.warning("=== [STEP 3] Retry also failed (%s), falling back to conversational", retry_err)
                             interpretation = QuestionInterpretation(question_type=QuestionType.CONVERSATIONAL, plan=None)
                             result = None
                         except Exception as retry_err:
-                            logger.warning("Unexpected analysis error on retry (%s), falling back to conversational", retry_err)
+                            logger.warning("=== [STEP 3] Unexpected retry error (%s), falling back to conversational", retry_err)
                             interpretation = QuestionInterpretation(question_type=QuestionType.CONVERSATIONAL, plan=None)
                             result = None
                     else:
@@ -364,7 +361,7 @@ async def chat(request: ChatRequest):
                 except Exception as plan_err:
                     # Unexpected engine error (e.g. pandas KeyError, TypeError) — not a bad LLM
                     # plan, so don't retry; fall back to conversational instead of surfacing 502.
-                    logger.warning("Unexpected analysis error (%s), falling back to conversational", plan_err)
+                    logger.warning("=== [STEP 3] Unexpected engine error (%s), falling back to conversational", plan_err)
                     interpretation = QuestionInterpretation(question_type=QuestionType.CONVERSATIONAL, plan=None)
                     result = None
 
@@ -378,6 +375,7 @@ async def chat(request: ChatRequest):
                             displayed_rows = 10_000
                             result.data.rows = result.data.rows[:10_000]
 
+                    logger.info("=== [STEP 4] Formatting answer with LLM...")
                     answer = client.format_answer(
                         question=request.question,
                         plan=interpretation.plan,
@@ -385,6 +383,7 @@ async def chat(request: ChatRequest):
                         profiles=session.profiles,
                         chat_history=session.chat_history,
                     )
+                    logger.info("=== [STEP 4] Final answer: %s", answer)
 
                     if result.chart_data:
                         chart_response = ChartDataResponse(
@@ -413,6 +412,7 @@ async def chat(request: ChatRequest):
                     session_store.update(request.session_id, session)
                     return ChatResponse(answer=answer, chart=chart_response, table=table_response, total_rows=total_rows, displayed_rows=displayed_rows)
 
+        logger.info("=== [STEP 4] Conversational answer — calling LLM to format...")
         answer = client.format_answer(
             question=request.question,
             plan=None,
@@ -420,6 +420,7 @@ async def chat(request: ChatRequest):
             profiles=session.profiles,
             chat_history=session.chat_history,
         )
+        logger.info("=== [STEP 4] Final answer: %s", answer)
 
         session.chat_history.append(
             Message(
