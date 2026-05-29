@@ -326,6 +326,7 @@ async def chat(request: ChatRequest):
                 interpretation = QuestionInterpretation(question_type=QuestionType.CONVERSATIONAL, plan=None)
             else:
                 try:
+                    import dataclasses; logger.info("Executing plan: %s", dataclasses.asdict(interpretation.plan))
                     result = analysis_engine.execute_plan(interpretation.plan, target_sheets)
                 except ValueError as plan_err:
                     # Bad plan — retry LLM once with the error as feedback
