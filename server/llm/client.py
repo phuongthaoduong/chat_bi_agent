@@ -5,6 +5,7 @@ from datetime import date
 from openai import OpenAI
 
 from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
+from semantic.layer import build_semantic_context
 from llm.prompts import (
     CHAT_CLASSIFY_PROMPT,
     CHAT_FORMAT_COMPUTATIONAL_PROMPT,
@@ -212,8 +213,10 @@ class LLMClient:
         detail = build_profile_detail(profiles)
         history = format_chat_history(chat_history)
 
+        today = date.today()
         prompt = CHAT_CLASSIFY_PROMPT.format(
-            today=date.today().isoformat(),
+            today=today.isoformat(),
+            semantic_context=build_semantic_context(today),
             dataset_inventory=inventory,
             profile_detail=detail,
             chat_history=history,

@@ -95,6 +95,8 @@ CHAT_CLASSIFY_PROMPT = """You are a data analyst. Given the dataset schemas and 
 
 TODAY'S DATE: {today}
 
+{semantic_context}
+
 AVAILABLE DATASETS:
 {dataset_inventory}
 
